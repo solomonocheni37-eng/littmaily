@@ -1,0 +1,176 @@
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/Inter.ttf") format("truetype");
+  /* Tells the browser this single variable font file handles all weights */
+  font-weight: 100 900;
+  font-style: normal;
+  /* Prevents invisible text while the font loads */
+  font-display: swap;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  /* Activates Inter's premium alternate characters (e.g., straight quotes) */
+  font-feature-settings: "cv11", "ss01", "ss03";
+  font-variation-settings: "opsz" 32;
+  color-scheme: light dark;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  body,
+  html,
+  #root {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background-color: #f4f4f5; /* Zinc 100 base */
+    color: #18181b; /* Zinc 900 */
+  }
+
+  @media (prefers-color-scheme: dark) {
+    body,
+    html,
+    #root {
+      background-color: #09090b; /* Zinc 950 base */
+      color: #fafafa; /* Zinc 50 */
+    }
+  }
+
+  /* Premium Thin Scrollbars */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #d4d4d8; /* Zinc 300 - Highly visible on light backgrounds */
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #a1a1aa; /* Zinc 400 */
+  }
+
+  /* Dark mode overrides using the .dark class applied by ThemeStore */
+  :root.dark ::-webkit-scrollbar-thumb {
+    background: #3f3f46; /* Zinc 700 */
+  }
+  :root.dark ::-webkit-scrollbar-thumb:hover {
+    background: #52525b; /* Zinc 600 */
+  }
+
+  /* Fallback for system preference if the .light/.dark class is not yet applied */
+  @media (prefers-color-scheme: dark) {
+    :root:not(.light) ::-webkit-scrollbar-thumb {
+      background: #3f3f46;
+    }
+    :root:not(.light) ::-webkit-scrollbar-thumb:hover {
+      background: #52525b;
+    }
+  }
+}
+
+@layer components {
+  /* The "Superhuman" text fade effect for email snippets */
+  .snippet-fade {
+    mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  }
+
+  /* Glassmorphism for Sidebars and Modals */
+  .glass-panel {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+    border-right: 1px solid rgba(0, 0, 0, 0.05);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .glass-panel {
+      background: rgba(24, 24, 27, 0.6); /* Zinc 900 with opacity */
+      border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
+  }
+
+  /* Premium subtle borders (using gradients instead of solid lines) */
+  .border-premium {
+    border: 1px solid transparent;
+    background: linear-gradient(
+          to right,
+          rgba(255, 255, 255, 0.05),
+          rgba(255, 255, 255, 0.05)
+        )
+        padding-box,
+      linear-gradient(to bottom, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.02))
+        border-box;
+  }
+}
+
+/* Smooth spring-like transitions globally */
+* {
+  transition-property: color, background-color, border-color,
+    text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter,
+    backdrop-filter;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* ==========================================
+Quill Rich Text Editor Dark Mode Overrides
+========================================== */
+.dark .ql-toolbar.ql-snow,
+.dark .ql-container.ql-snow {
+  border-color: #3f3f46; /* surface-700 */
+  background-color: #18181b; /* surface-900 */
+  border-left: none;
+  border-right: none;
+}
+.dark .ql-container.ql-snow {
+  border-bottom: none;
+}
+.dark .ql-editor {
+  color: #fafafa; /* surface-50 */
+  background-color: #18181b;
+  min-height: 200px;
+  font-family: "Inter", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.dark .ql-editor.ql-blank::before {
+  color: #71717a; /* surface-500 */
+  font-style: normal;
+}
+.dark .ql-snow .ql-stroke {
+  stroke: #a1a1aa; /* surface-400 */
+}
+.dark .ql-snow .ql-fill {
+  fill: #a1a1aa;
+}
+.dark .ql-snow .ql-picker {
+  color: #a1a1aa;
+}
+.dark .ql-snow .ql-picker-options {
+  background-color: #27272a; /* surface-800 */
+  border-color: #3f3f46;
+}
+.dark .ql-snow .ql-picker.ql-expanded .ql-picker-label {
+  border-color: #3f3f46;
+}
+
+/* Fix blockquote styling in dark mode */
+.dark .ql-editor blockquote {
+  border-left: 4px solid #3f3f46;
+  color: #a1a1aa;
+  padding-left: 16px;
+  margin-bottom: 5px;
+  margin-top: 5px;
+}

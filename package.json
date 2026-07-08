@@ -1,0 +1,10 @@
+{
+  "name": "littmaily-workspace",
+  "private": true,
+  "scripts": {
+    "dev": "cd crates/tauri-app && cargo tauri dev",
+    "build": "cd crates/tauri-app && cargo tauri build",
+    "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build"
+  }
+}

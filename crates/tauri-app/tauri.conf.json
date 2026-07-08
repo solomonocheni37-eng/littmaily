@@ -1,0 +1,50 @@
+{
+  "productName": "Littmaily",
+  "version": "0.1.0",
+  "identifier": "com.littmaily.desktop",
+  "build": {
+    "beforeDevCommand": "npm run frontend:dev",
+    "beforeBuildCommand": "npm run frontend:build",
+    "frontendDist": "../../frontend/dist",
+    "devUrl": "http://127.0.0.1:1420"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Littmaily",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false,
+        "visible": true,
+        "backgroundColor": "#f8fafc"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost https://asset.localhost data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:;",
+      "assetProtocol": {
+        "scope": [
+          "$APPLOCALDATA/littmaily/blobs/**",
+          "$APPLOCALDATA/littmaily/cache/**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ1OUFCNzAwMkI5QTc2QUUKUldTdWRwb3JBTGVhUlZEVkloOHF3bWE4dzZZNlFxMXJwWkRxVDFqbnlzS3h2K2h2elBOSm5kcHYK",
+      "endpoints": [
+        "https://github.com/solomonocheni37-eng/littmaily/releases/latest/download/latest.json"
+      ]
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": ["littmaily"]
+      }
+    }
+  }
+}

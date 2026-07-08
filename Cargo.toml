@@ -1,0 +1,12 @@
+[workspace]
+members = [
+    "crates/email-core",
+    "crates/caldav",
+    "crates/carddav",
+    "crates/storage",
+    "crates/crypto",
+    "crates/tauri-app",
+]
+resolver = "2"
+
+

@@ -1,0 +1,110 @@
+name: 'Littmaily CI & Release'
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Trigger automated releases on version tags (e.g., v1.0.0)
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  # ==========================================
+  # JOB 1: Fast Feedback (Runs on every PR/Push)
+  # ==========================================
+  test-and-verify:
+    name: Test & Verify (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+          - platform: 'ubuntu-24.04' # Required for Tauri v2 WebKit
+          - platform: 'windows-latest'
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Linux requires WebKit and GTK headers to compile Tauri v2
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: npm install
+        working-directory: frontend
+
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Crucial: Caching saves 10+ minutes of SQLCipher C-compilation time per run!
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Cargo Format Check
+        run: cargo fmt --all -- --check
+
+      - name: Cargo Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Gracefully skips live IMAP OAuth tests if ENV vars are missing
+      - name: Run Rust Tests
+        run: cargo test --workspace
+
+  # ==========================================
+  # JOB 2: Release Binaries (Runs ONLY on Git Tags)
+  # ==========================================
+  release:
+    name: Build Release (${{ matrix.platform }})
+    needs: test-and-verify
+    if: startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+          - platform: 'ubuntu-24.04'
+          - platform: 'windows-latest'
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: Install Frontend
+        run: npm install
+        working-directory: frontend
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build Tauri App & Upload Artifacts
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Littmaily ${{ github.ref_name }}'
+          releaseBody: 'Download the installer for your OS below.'
+          releaseDraft: true
+          prerelease: false

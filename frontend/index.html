@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Littmaily</title>
+    <style>
+      body,
+      html {
+        margin: 0;
+        padding: 0;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        background-color: #09090b;
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+      }
+
+      /*
+        Native HTML splash screen displayed while Tauri initializes and SolidJS mounts.
+        We use pure CSS instead of JS here to ensure it renders instantly before
+        any JS bundles are parsed or executed.
+      */
+      #splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        background: radial-gradient(
+          circle at 50% 50%,
+          #18181b 0%,
+          #09090b 100%
+        );
+        transition: opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+          transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .splash-logo {
+        font-size: 2.5rem;
+        font-weight: 700;
+        letter-spacing: -0.05em;
+        background: linear-gradient(
+          120deg,
+          #71717a 0%,
+          #e4e4e7 20%,
+          #ffffff 40%,
+          #e4e4e7 60%,
+          #71717a 100%
+        );
+        background-size: 200% 100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        animation: shimmer 3s infinite linear;
+        margin-bottom: 2.5rem;
+      }
+
+      @keyframes shimmer {
+        0% {
+          background-position: 200% 0;
+        }
+        100% {
+          background-position: -200% 0;
+        }
+      }
+
+      .splash-loader {
+        display: flex;
+        gap: 8px;
+      }
+
+      .splash-dot {
+        width: 6px;
+        height: 6px;
+        background-color: #6366f1;
+        border-radius: 50%;
+        animation: pulse-dot 1.4s infinite ease-in-out both;
+        box-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+      }
+
+      .splash-dot:nth-child(1) {
+        animation-delay: -0.32s;
+      }
+      .splash-dot:nth-child(2) {
+        animation-delay: -0.16s;
+      }
+
+      @keyframes pulse-dot {
+        0%,
+        80%,
+        100% {
+          transform: scale(0.6);
+          opacity: 0.5;
+        }
+        40% {
+          transform: scale(1);
+          opacity: 1;
+        }
+      }
+
+      @media (prefers-color-scheme: light) {
+        body,
+        html {
+          background-color: #fafafa;
+        }
+        #splash {
+          background: radial-gradient(
+            circle at 50% 50%,
+            #ffffff 0%,
+            #f4f4f5 100%
+          );
+        }
+        .splash-logo {
+          background: linear-gradient(
+            120deg,
+            #a1a1aa 0%,
+            #27272a 20%,
+            #09090b 40%,
+            #27272a 60%,
+            #a1a1aa 100%
+          );
+          background-size: 200% 100%;
+          -webkit-background-clip: text;
+          background-clip: text;
+          -webkit-text-fill-color: transparent;
+        }
+        .splash-dot {
+          background-color: #4f46e5;
+          box-shadow: 0 0 10px rgba(79, 70, 229, 0.3);
+        }
+      }
+
+      /* Hidden by default; App.tsx sets display to block once the DB is ready */
+      #root {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="splash">
+      <div class="splash-logo">Littmaily</div>
+      <div class="splash-loader">
+        <div class="splash-dot"></div>
+        <div class="splash-dot"></div>
+        <div class="splash-dot"></div>
+      </div>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/index.tsx"></script>
+  </body>
+</html>
