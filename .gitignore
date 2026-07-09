@@ -39,6 +39,7 @@ secrets.json
 Thumbs.db
 .idea/
 .vscode/
+.zed
 
 # Project Planning
 project_summary.txt
