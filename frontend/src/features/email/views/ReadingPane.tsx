@@ -32,8 +32,7 @@ const ReadingPane = () => {
     imagesLoaded,
     renderedHtml,
     iframeRef,
-    isDark,
-    buildSrcdoc,
+    blobUrl, // CHANGED: Replaced buildSrcdoc and removed unused isDark
     triggerLoadRemoteImages,
     zoom,
     setZoom,
@@ -64,9 +63,7 @@ const ReadingPane = () => {
 
     if (isExecutable(filename)) {
       const isConfirmed = await confirm(
-        `The file "${displayName}" is an executable or script.
-Running untrusted files from emails is dangerous.
-Are you absolutely sure?`,
+        `The file "${displayName}" is an executable or script.\nRunning untrusted files from emails is dangerous.\nAre you absolutely sure?`,
         {
           title: "Security Warning",
           okLabel: "Download Anyway",
@@ -298,7 +295,7 @@ Are you absolutely sure?`,
                   // but blocks same-origin access to the parent window to maintain the security boundary.
                   sandbox="allow-scripts"
                   class="w-full min-h-[400px] bg-white dark:bg-surface-900 rounded-lg shadow-sm border border-surface-200 dark:border-surface-800 transition-[height] duration-300 ease-in-out"
-                  srcdoc={buildSrcdoc(isDark())}
+                  src={blobUrl() || undefined} // CHANGED: Use blob URL instead of srcdoc to fix CSP inheritance
                   title="Email Content"
                 />
               </Show>

@@ -58,6 +58,21 @@ export function useEmailViewer() {
 
   const isDark = () => document.documentElement.classList.contains("dark");
 
+  // NEW: Generate a blob URL to bypass WebKitGTK srcdoc CSP inheritance bugs.
+  // Using a blob URL creates an isolated document context that respects its own
+  // internal <meta> CSP without being overridden by the parent window's strict CSP.
+  const [blobUrl, setBlobUrl] = createSignal<string | null>(null);
+
+  createEffect(() => {
+    // Track isDark() to regenerate the blob URL with correct theme styles when toggled
+    const dark = isDark();
+    const html = buildSrcdoc(dark);
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    setBlobUrl(url);
+    onCleanup(() => URL.revokeObjectURL(url));
+  });
+
   // FIX: Removed zoom() from here so the iframe doesn't reload when zooming
   createEffect(() => {
     isDark();
@@ -98,11 +113,9 @@ export function useEmailViewer() {
   const handleLinkClick = async (href: string) => {
     if (!href || href.startsWith("mailto:")) return;
     const displayHref = href.length > 60 ? `${href.substring(0, 60)}...` : href;
+
     const isConfirmed = await confirm(
-      `You are about to open an external link.
-Destination:
-${displayHref}
-Do you trust this sender?`,
+      `You are about to open an external link.\n\nDestination:\n${displayHref}\n\nDo you trust this sender?`,
       { title: "Security Warning", okLabel: "Open Link", cancelLabel: "Cancel" }
     );
     if (isConfirmed) await open(href);
@@ -111,6 +124,7 @@ Do you trust this sender?`,
   const triggerLoadRemoteImages = async () => {
     const html = emailBody()?.html_body;
     if (!html) return;
+
     const serializedHtml = await loadRemoteImages(html);
     setRenderedHtml(serializedHtml);
     setImagesLoaded(true);
@@ -131,6 +145,7 @@ Do you trust this sender?`,
         setIframeReady(true);
       }
     };
+
     window.addEventListener("message", handleMessage);
     onCleanup(() => window.removeEventListener("message", handleMessage));
   });
@@ -142,8 +157,7 @@ Do you trust this sender?`,
     imagesLoaded,
     renderedHtml,
     iframeRef: (el: HTMLIFrameElement) => (iframeRef = el),
-    isDark,
-    buildSrcdoc,
+    blobUrl, // CHANGED: Exposed blobUrl instead of buildSrcdoc
     triggerLoadRemoteImages,
     zoom,
     setZoom,
