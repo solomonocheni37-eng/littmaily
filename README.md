@@ -64,5 +64,5 @@ The core application, local-first architecture, and UI are protected under the *
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/littmaily.git
+   git clone https://github.com/solomonocheni37-eng/littmaily.git
    cd littmaily
