@@ -15,6 +15,7 @@
     "notification:allow-request-permission",
     "notification:allow-notify",
     "updater:default",
+    "process:default",
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:window:allow-set-focus",
