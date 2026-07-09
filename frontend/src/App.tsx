@@ -15,19 +15,19 @@ import CommandPalette from "./features/search/components/CommandPalette";
 import ContextMenu from "./features/email/components/ContextMenu";
 import SettingsModal from "./features/settings/components/SettingsModal";
 import { AppShell } from "./features/layout/components/AppShell";
+import { useAppUpdater } from "./core/hooks/useAppUpdater";
 
 function App() {
   const [isReady, setIsReady] = createSignal(false);
+
+  // Initialize the auto-updater check on mount
+  useAppUpdater();
+
   let active = true;
   let interval: ReturnType<typeof setInterval> | undefined;
 
   onMount(() => {
     console.log("[FRONTEND] App mounted. Starting DB readiness check...");
-
-    // Polls the Rust backend to check if the SQLCipher database has finished
-    // decrypting and initializing. We use polling instead of a blocking await
-    // because the DB init happens on a background thread to prevent freezing
-    // the UI thread during startup on large databases.
     const checkReady = async () => {
       try {
         const ready = await invoke<boolean>("check_db_ready");
@@ -57,7 +57,6 @@ function App() {
     if (interval) clearInterval(interval);
   });
 
-  // Handles the transition from the native HTML splash screen to the SolidJS app.
   createEffect(() => {
     if (isReady()) {
       const splash = document.getElementById("splash");
