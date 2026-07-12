@@ -111,7 +111,7 @@ const EmailListItem: Component<Props> = (props) => {
         <Trash2 size={20} class="mr-2" /> Delete
       </div>
       <div
-        class={`group flex items-center px-5 py-3.5 border-b border-surface-100 dark:border-surface-800/50 cursor-pointer transition-all duration-200 h-[84px] overflow-hidden border-l-2 ${
+        class={`group flex items-center px-5 py-3.5 border-b border-surface-100 dark:border-surface-800/50 cursor-pointer transition-colors duration-200 h-[84px] overflow-hidden border-l-2 ${
           isFocused()
             ? "bg-surface-100 dark:bg-surface-800 ring-2 ring-inset ring-brand-500/80 z-10 border-l-brand-600"
             : props.isSelected || props.isReading
@@ -120,7 +120,6 @@ const EmailListItem: Component<Props> = (props) => {
         }`}
         style={{
           transform: `translateX(${offset()}px)`,
-          // Allows vertical scrolling on touch devices while intercepting horizontal swipes for the delete gesture.
           "touch-action": "pan-y",
           transition: isDragging() ? "none" : "transform 0.2s ease-out",
         }}
@@ -147,12 +146,12 @@ const EmailListItem: Component<Props> = (props) => {
 
         <div class="w-2 flex-shrink-0 mr-2">
           <Show when={!isRead() && !props.isSelectionMode}>
-            <div class="w-1.5 h-1.5 rounded-full bg-brand-500 shadow-glow" />
+            <div class="w-1.5 h-1.5 rounded-full bg-brand-500" />
           </Show>
         </div>
 
         <div
-          class={`w-9 h-9 rounded-full bg-gradient-to-br ${avatarGradient()} flex items-center justify-center text-white text-sm font-medium shadow-soft flex-shrink-0 mr-4`}
+          class={`w-9 h-9 rounded-full bg-gradient-to-br ${avatarGradient()} flex items-center justify-center text-white text-sm font-medium flex-shrink-0 mr-4`}
         >
           {senderName().charAt(0).toUpperCase()}
         </div>
@@ -184,6 +183,7 @@ const EmailListItem: Component<Props> = (props) => {
               </span>
             </div>
           </div>
+
           <div class="flex items-center gap-2 mb-1">
             <span
               class={`truncate text-sm ${
@@ -203,6 +203,7 @@ const EmailListItem: Component<Props> = (props) => {
               <Paperclip size={12} class="text-surface-400 flex-shrink-0" />
             </Show>
           </div>
+
           <div class="snippet-fade text-xs text-surface-500 dark:text-surface-500 leading-relaxed line-clamp-1">
             {props.email.snippet && props.email.snippet.trim() !== ""
               ? props.email.snippet

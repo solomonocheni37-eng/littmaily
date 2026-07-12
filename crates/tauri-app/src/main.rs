@@ -26,9 +26,15 @@ fn main() {
     // at the cost of some graphical performance.
     #[cfg(target_os = "linux")]
     unsafe {
-        std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+        // CRITICAL PRODUCTION FIX:
+        // The previous workaround forced CPU software rendering to prevent Wayland crashes,
+        // which mathematically guarantees scrolling jank (the CPU cannot repaint at 60fps+).
+        // Instead, we force X11 via XWayland. This bypasses native Wayland GPU crashes
+        // while preserving the hardware compositor required for buttery smooth scrolling.
+        std::env::set_var("GDK_BACKEND", "x11");
+
+        // Disable DMA-BUF to prevent specific Nvidia/Mesa segfaults without killing OpenGL
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-        std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
     }
 
     // rustls requires a crypto provider to be installed globally before any TLS connections
@@ -243,8 +249,7 @@ fn main() {
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
 
-            let _tray = TrayIconBuilder::with_id("main-tray")
-                .icon(app.default_window_icon().unwrap().clone())
+            let mut tray_builder = TrayIconBuilder::with_id("main-tray")
                 .tooltip("Littmaily")
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -272,8 +277,14 @@ fn main() {
                         }
                     }
                     _ => {}
-                })
-                .build(app)?;
+                });
+
+            if let Some(icon) = app.default_window_icon() {
+                tray_builder = tray_builder.icon(icon.clone());
+            }
+
+            let _tray = tray_builder.build(app)?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

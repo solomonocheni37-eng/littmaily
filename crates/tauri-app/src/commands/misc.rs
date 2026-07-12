@@ -241,7 +241,6 @@ pub async fn update_badge_count(
     app_handle: tauri::AppHandle,
 ) -> Result<(), AppError> {
     let pool = state.pool.get().ok_or_else(|| AppError::System("DB not ready".into()))?;
-
     let unread_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM messages WHERE flags NOT LIKE '%\"Seen\"%'"
     )
@@ -258,10 +257,17 @@ pub async fn update_badge_count(
         let _ = tray.set_tooltip(Some(tooltip));
     }
 
-    // Fallback for Windows/Linux taskbars
-    #[cfg(target_os = "macos")]
-    {
-        if let Some(window) = app_handle.get_webview_window("main") {
+    if let Some(window) = app_handle.get_webview_window("main") {
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            // Natively updates the macOS Dock badge and Linux Unity Launcher API (GNOME Dash to Dock, KDE Plasma)
+            let badge = if unread_count > 0 { Some(unread_count) } else { None };
+            let _ = window.set_badge_count(badge);
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            // Windows taskbar fallback
             if unread_count > 0 {
                 let _ = window.set_title(&format!("Littmaily ({})", unread_count));
             } else {
@@ -269,25 +275,6 @@ pub async fn update_badge_count(
             }
         }
     }
-    #[cfg(target_os = "windows")]
-    {
-        if let Some(window) = app_handle.get_webview_window("main") {
-            if unread_count > 0 {
-                let _ = window.set_title(&format!("Littmaily ({})", unread_count));
-            } else {
-                let _ = window.set_title("Littmaily");
-            }
-        }
-    }
-    #[cfg(target_os = "linux")]
-    {
-        if let Some(window) = app_handle.get_webview_window("main") {
-            if unread_count > 0 {
-                let _ = window.set_title(&format!("Littmaily ({})", unread_count));
-            } else {
-                let _ = window.set_title("Littmaily");
-            }
-        }
-    }
+
     Ok(())
 }

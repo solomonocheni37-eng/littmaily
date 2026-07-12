@@ -32,7 +32,7 @@ const ReadingPane = () => {
     imagesLoaded,
     renderedHtml,
     iframeRef,
-    blobUrl, // CHANGED: Replaced buildSrcdoc and removed unused isDark
+    blobUrl,
     triggerLoadRemoteImages,
     zoom,
     setZoom,
@@ -40,7 +40,6 @@ const ReadingPane = () => {
 
   let scrollContainerRef: HTMLDivElement | undefined;
 
-  // Reset scroll position when the selected email changes.
   createEffect(() => {
     state.selectedEmail?.uid;
     if (scrollContainerRef) {
@@ -192,7 +191,6 @@ const ReadingPane = () => {
                 <Trash2 size={18} />
               </button>
 
-              {/* Premium Zoom Controls */}
               <div class="flex items-center gap-1 border-l border-surface-200 dark:border-surface-800 pl-2 ml-2">
                 <button
                   onClick={() => setZoom((z) => Math.max(50, z - 10))}
@@ -230,7 +228,8 @@ const ReadingPane = () => {
           </div>
         </div>
 
-        <div ref={scrollContainerRef} class="flex-1 overflow-y-auto">
+        {/* Added overscroll-contain to prevent scroll chaining */}
+        <div ref={scrollContainerRef} class="flex-1 overflow-y-auto overscroll-contain">
           <Show
             when={emailBody.state === "ready"}
             fallback={
@@ -291,11 +290,9 @@ const ReadingPane = () => {
               >
                 <iframe
                   ref={iframeRef}
-                  // sandbox="allow-scripts" permits JS for dynamic resizing and link interception,
-                  // but blocks same-origin access to the parent window to maintain the security boundary.
                   sandbox="allow-scripts"
-                  class="w-full min-h-[400px] bg-white dark:bg-surface-900 rounded-lg shadow-sm border border-surface-200 dark:border-surface-800 transition-[height] duration-300 ease-in-out"
-                  src={blobUrl() || undefined} // CHANGED: Use blob URL instead of srcdoc to fix CSP inheritance
+                  class="w-full min-h-[400px] bg-transparent rounded-lg shadow-sm border border-surface-200 dark:border-surface-800 transition-[height] duration-300 ease-in-out"
+                  src={blobUrl() || undefined}
                   title="Email Content"
                 />
               </Show>

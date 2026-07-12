@@ -3,8 +3,6 @@ import { EmailApi } from "@/core/ipc";
 
 export const FALLBACK_PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP";
 
-// Completely hides 1x1 tracking pixels so they don't break layout or show broken image icons,
-// while preserving the DOM structure for legitimate content.
 const NUKE_STYLE =
   "display:none !important; visibility:hidden !important; border:0 !important; outline:0 !important; width:0 !important; height:0 !important; max-width:0 !important; max-height:0 !important; min-width:0 !important; min-height:0 !important; padding:0 !important; margin:0 !important; background:transparent !important; background-image:none !important; background-color:transparent !important; overflow:hidden !important; font-size:0 !important; line-height:0 !important; mso-hide:all !important;";
 
@@ -15,6 +13,7 @@ export function sanitizeEmailDom(html: string): string {
   const deadElements = doc.querySelectorAll(
     `img[src*="${FALLBACK_PIXEL}"], [background*="${FALLBACK_PIXEL}"], [style*="${FALLBACK_PIXEL}"]`
   );
+
   deadElements.forEach((el) => {
     el.setAttribute("style", NUKE_STYLE);
     el.removeAttribute("border");
@@ -45,6 +44,7 @@ export function sanitizeEmailDom(html: string): string {
         currentWrapper.removeAttribute("background");
         currentWrapper.removeAttribute("cellpadding");
         currentWrapper.removeAttribute("cellspacing");
+
         const parent = currentWrapper.parentElement;
         currentWrapper = parent
           ? parent.closest("td, th, div, a, span, li, p, tr, table")
@@ -62,13 +62,9 @@ export function sanitizeEmailDom(html: string): string {
   return doc.head.innerHTML + doc.body.innerHTML;
 }
 
-// CHANGED: Removed `zoom` parameter to prevent iframe reloads and enable smooth transitions
 export function buildSrcdoc(isDark: boolean): string {
-  const darkModeStyles = isDark
-    ? `body { background-color: #18181b; color: #fafafa; } a { color: #818cf8; }`
-    : `body { background-color: #ffffff; color: #18181b; } a { color: #4f46e5; }`;
+  const canvasBg = isDark ? '#27272a' : '#e5e7eb';
 
-  // Inject CSP into the iframe to block external resources unless explicitly proxied.
   const csp = `default-src 'none'; style-src 'unsafe-inline'; img-src * data:; media-src * data:; font-src * data:; script-src 'nonce-littmaily-internal'; base-uri 'none'; form-action 'none';`;
 
   return `<!DOCTYPE html>
@@ -76,78 +72,139 @@ export function buildSrcdoc(isDark: boolean): string {
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
+<!-- Forces WebKit to treat this document as light-mode, preventing auto-inversion of the white paper -->
+<meta name="color-scheme" content="light only">
+<meta name="supported-color-schemes" content="light">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-* { box-sizing: border-box; }
-body {
-  margin: 0; padding: 24px; font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; word-wrap: break-word;
-  ${darkModeStyles}
-  zoom: 1;
-  transform-origin: top left;
-  /* Premium spring-like transition for zooming */
-  transition: zoom 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  cursor: grab;
-}
-body:active { cursor: grabbing; }
-img, svg, video, canvas { max-width: 100% !important; height: auto !important; }
-table { max-width: 100% !important; border-collapse: collapse; }
-img[width="1"], img[height="1"], img[width="0"], img[height="0"] { display: none !important; }
+  * { box-sizing: border-box; }
+
+  /* THE VIEWPORT (PDF Viewer Canvas) */
+  html {
+    width: 100%;
+    background-color: ${canvasBg};
+    margin: 0;
+    padding: 0;
+    overflow-x: auto; /* Shows horizontal scrollbar ONLY when zoomed paper exceeds viewport */
+    overflow-y: hidden; /* Parent Tauri window handles vertical scrolling */
+  }
+
+  body {
+    margin: 0;
+    padding: 24px 0; /* Top/Bottom padding for the paper shadow */
+    background: transparent;
+  }
+
+  /* THE SCROLL ANCHOR */
+  #canvas {
+    margin: 0 auto; /* Centers when small, anchors to left:0 when wider than viewport */
+    width: 800px; /* Initial width, dynamically updated by JS */
+    height: auto;
+  }
+
+  /* THE PAPER (Frozen Layout) */
+  #paper {
+    width: 800px; /* STRICT FIXED WIDTH. Text will NEVER reflow. */
+    min-height: 500px;
+    padding: 48px;
+    background-color: #ffffff; /* ALWAYS white, like a real PDF */
+    color: #18181b;
+    box-shadow: ${isDark ? '0 4px 12px rgba(0,0,0,0.4)' : '0 4px 12px rgba(0,0,0,0.1)'};
+    font-family: system-ui, -apple-system, sans-serif;
+    line-height: 1.6;
+    word-wrap: break-word;
+
+    /* PDF Scaling Engine */
+    transform-origin: top left; /* Anchors to top-left to prevent negative coordinate clipping */
+    transform: scale(1);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  #paper a { color: #4f46e5; }
+  img, svg, video, canvas { max-width: 100% !important; height: auto !important; }
+  table { max-width: 100% !important; border-collapse: collapse; }
+  img[width="1"], img[height="1"], img[width="0"], img[height="0"] { display: none !important; }
+
+  /* Premium Scrollbar Styling */
+  ::-webkit-scrollbar { width: 12px; height: 12px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background-color: rgba(150, 150, 150, 0.5); border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background-color: rgba(150, 150, 150, 0.8); }
+  ::-webkit-scrollbar-corner { background: transparent; }
 </style>
 </head>
 <body>
+<div id="canvas">
+  <div id="paper"></div>
+</div>
 <script nonce="littmaily-internal">
-function resize() {
-  const height = document.documentElement.scrollHeight;
-  window.parent.postMessage({ type: 'email-resize', height: height }, '*');
-}
+  const paper = document.getElementById('paper');
+  const canvas = document.getElementById('canvas');
+  let lastHeight = 0;
 
-const observer = new MutationObserver(resize);
-observer.observe(document.body, { childList: true, subtree: true });
+  function resize() {
+    if (!paper || !canvas) return;
 
-document.addEventListener('click', function(e) {
-  let target = e.target;
-  while (target && target.tagName !== 'A') { target = target.parentElement; }
-  if (target && target.href) {
-    e.preventDefault();
-    window.parent.postMessage({ type: 'email-link-click', href: target.href }, '*');
+    // getBoundingClientRect returns the TRUE visual dimensions AFTER CSS transform: scale() is applied
+    const rect = paper.getBoundingClientRect();
+
+    // Force the canvas wrapper to exactly match the scaled paper's dimensions.
+    // This allows the parent html element to show a horizontal scrollbar when scaled > 100%
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+
+    // Calculate total visual height including body padding
+    const visualHeight = rect.height + 48;
+
+    // CRITICAL: Only postMessage if height changed by more than 2px to prevent micro-thrashing
+    if (Math.abs(visualHeight - lastHeight) > 2) {
+      lastHeight = visualHeight;
+      window.parent.postMessage({ type: 'email-resize', height: visualHeight }, '*');
+    }
   }
-});
 
-let isDown = false;
-let startY = 0;
-let scrollTop = 0;
-document.addEventListener('mousedown', (e) => {
-  if (e.target.closest('a, button, input, textarea, select, img')) return;
-  isDown = true; startY = e.pageY; scrollTop = window.scrollY;
-});
-document.addEventListener('mouseup', () => { isDown = false; });
-document.addEventListener('mouseleave', () => { isDown = false; });
-document.addEventListener('mousemove', (e) => {
-  if (!isDown) return;
-  e.preventDefault();
-  window.scrollTo(0, scrollTop - (e.pageY - startY) * 1.5);
-});
+  const observer = new MutationObserver(resize);
+  observer.observe(paper, { childList: true, subtree: true });
 
-window.addEventListener('message', function(event) {
-  if (event.data && event.data.type === 'email-content') {
-    document.body.innerHTML = event.data.html;
-    setTimeout(resize, 0);
-  } else if (event.data && event.data.type === 'zoom-update') {
-    // Apply zoom dynamically without reloading
-    document.body.style.zoom = event.data.zoom / 100;
+  // Catch late-loading images that expand the layout
+  document.addEventListener('load', function(e) {
+    if (e.target.tagName === 'IMG') setTimeout(resize, 50);
+  }, true);
 
-    // Recalculate height continuously during the 300ms transition so the iframe container
-    // resizes smoothly without jumping or leaving empty space at the bottom.
-    let transitions = 0;
-    const interval = setInterval(() => {
-      resize();
-      transitions++;
-      if (transitions > 10) clearInterval(interval);
-    }, 30);
-  }
-});
+  document.addEventListener('click', function(e) {
+    let target = e.target;
+    while (target && target.tagName !== 'A') { target = target.parentElement; }
+    if (target && target.href) {
+      e.preventDefault();
+      window.parent.postMessage({ type: 'email-link-click', href: target.href }, '*');
+    }
+  });
 
-window.parent.postMessage({ type: 'iframe-ready' }, '*');
+  window.addEventListener('message', function(event) {
+    if (event.data && event.data.type === 'email-content') {
+      paper.innerHTML = event.data.html;
+      setTimeout(resize, 0);
+    } else if (event.data && event.data.type === 'zoom-update') {
+      const z = event.data.zoom / 100;
+
+      // Apply CSS Transform instead of Zoom.
+      // This freezes the internal layout at 800px, guaranteeing text NEVER reflows and images NEVER shift.
+      paper.style.transform = \`scale(\${z})\`;
+
+      // Recalculate dimensions continuously during the 300ms CSS transition
+      let startTime = performance.now();
+      function step() {
+        resize();
+        if (performance.now() - startTime < 350) {
+          requestAnimationFrame(step);
+        }
+      }
+      requestAnimationFrame(step);
+    }
+  });
+
+  window.parent.postMessage({ type: 'iframe-ready' }, '*');
+  window.addEventListener('resize', resize);
 </script>
 </body>
 </html>`;
@@ -195,8 +252,10 @@ export async function loadRemoteImages(html: string): Promise<string> {
   const deadElements = doc.querySelectorAll(
     `img[src*="${FALLBACK_PIXEL}"], [background*="${FALLBACK_PIXEL}"], [style*="${FALLBACK_PIXEL}"]`
   );
+
   deadElements.forEach((el) => {
     el.setAttribute("style", NUKE_STYLE);
+
     let currentWrapper = el.closest("td, th, div, a, span, li, p, tr, table");
     while (currentWrapper) {
       const clone = currentWrapper.cloneNode(true) as HTMLElement;
@@ -212,6 +271,7 @@ export async function loadRemoteImages(html: string): Promise<string> {
 
       if (!hasOtherContent) {
         currentWrapper.setAttribute("style", NUKE_STYLE);
+
         const parent = currentWrapper.parentElement;
         currentWrapper = parent
           ? parent.closest("td, th, div, a, span, li, p, tr, table")

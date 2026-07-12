@@ -64,10 +64,7 @@ const EmailListPane = () => {
     const items = virtualizer.getVirtualItems();
     if (items.length > 0 && hasMore() && !isLoading()) {
       const lastItem = items[items.length - 1];
-      // Trigger infinite scroll when the user is within 40 items of the bottom.
       if (lastItem.index >= emails().length - 40) {
-        // untrack prevents SolidJS from tracking the fetchPage dependency inside this effect,
-        // avoiding unnecessary re-executions when the emails array updates.
         untrack(() => fetchPage());
       }
     }
@@ -123,6 +120,7 @@ const EmailListPane = () => {
         if (import.meta.env.DEV) console.error(e);
       })
     );
+
     await Promise.all(promises);
 
     setEmails((prev) => {
@@ -309,7 +307,6 @@ const EmailListPane = () => {
         </div>
       </div>
 
-      {/* Bulk Action Bar */}
       <Show when={isSelectionMode() && selectedIds().size > 0}>
         <div class="px-4 py-2 bg-brand-50 dark:bg-brand-900/20 border-b border-brand-200 dark:border-brand-800 flex items-center justify-between gap-3 flex-shrink-0">
           <div class="flex items-center gap-2">
@@ -361,7 +358,6 @@ const EmailListPane = () => {
       <div
         ref={scrollElementRef}
         class="flex-1 overflow-auto relative"
-        // Prevents browser's native scroll anchoring from fighting with Tanstack Virtual's absolute positioning.
         style={{ "overflow-anchor": "none" }}
       >
         <Show
@@ -380,14 +376,18 @@ const EmailListPane = () => {
                   if (isSentinel) {
                     return (
                       <div
+                        class="virtual-row"
                         style={{
                           position: "absolute",
-                          top: `${virtualRow.start}px`,
+                          top: "0",
                           left: "0",
                           width: "100%",
                           height: "60px",
+                          transform: `translateY(${virtualRow.start}px)`,
                         }}
-                        class="flex items-center justify-center text-surface-500 dark:text-surface-400 text-sm"
+                        classList={{
+                          "flex items-center justify-center text-surface-500 dark:text-surface-400 text-sm": true,
+                        }}
                       >
                         {isLoading() ? (
                           <div class="flex items-center gap-2">
@@ -406,15 +406,17 @@ const EmailListPane = () => {
                   }
                   return (
                     <div
+                      class="virtual-row"
                       onClick={() => {
                         const em = emails()[virtualRow.index];
                         if (em) handleEmailClick(em);
                       }}
                       style={{
                         position: "absolute",
-                        top: `${virtualRow.start}px`,
+                        top: "0",
                         left: "0",
                         width: "100%",
+                        transform: `translateY(${virtualRow.start}px)`,
                       }}
                     >
                       <Show when={emails()[virtualRow.index]}>

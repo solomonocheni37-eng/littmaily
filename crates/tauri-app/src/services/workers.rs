@@ -763,7 +763,15 @@ pub async fn run_caldav_sync_worker(pool: SqlitePool) {
                     Some(url) => url,
                     None => { tracing::warn!("Could not discover CalDAV endpoint for {}", account.email); continue; }
                 };
-                let password = auth::get_password(&account.id, "imap").unwrap_or_default();
+
+                let password = match auth::get_password(&account.id, "imap") {
+                    Ok(p) => p,
+                    Err(e) => {
+                        tracing::warn!("Skipping CalDAV sync for {}: Keychain access failed ({})", account.email, e);
+                        continue;
+                    }
+                };
+
                 if let Ok(client) = caldav::CalDavClient::new(&dav_url, &account.email, &password) {
                     let engine = caldav::SyncEngine::new(client);
                     let cal_repo = CalendarRepository::new(&pool);
@@ -772,6 +780,7 @@ pub async fn run_caldav_sync_worker(pool: SqlitePool) {
                             let old_token = cal_repo.get_calendars_for_account(&account.id).await.ok()
                                 .and_then(|cals| cals.into_iter().find(|c| c.url == cal.url))
                                 .and_then(|c| c.sync_token);
+
                             if let Ok((changed, deleted, new_token)) = engine.sync_collection(&cal, old_token.as_deref()).await {
                                 let cal_id = cal_repo.upsert_calendar(&account.id, &cal.url, &cal.display_name, cal.ctag.as_deref(), Some(&new_token)).await.map(|c| c.id).unwrap_or(0);
                                 for evt in changed {
@@ -781,7 +790,6 @@ pub async fn run_caldav_sync_worker(pool: SqlitePool) {
                                     let _ = cal_repo.delete_event_by_url(cal_id, &href).await;
                                 }
                             } else {
-                                // If sync fails (e.g. expired token), update the metadata but don't wipe events.
                                 let _ = cal_repo.upsert_calendar(&account.id, &cal.url, &cal.display_name, cal.ctag.as_deref(), cal.sync_token.as_deref()).await;
                             }
                         }
@@ -794,42 +802,51 @@ pub async fn run_caldav_sync_worker(pool: SqlitePool) {
 }
 
 pub async fn run_carddav_sync_worker(pool: SqlitePool) {
-    loop {
-        let acc_repo = AccountRepository::new(&pool);
-        if let Ok(accounts) = acc_repo.list_all().await {
-            for account in accounts {
-                let domain = account.email.split('@').nth(1).unwrap_or(&account.imap_host);
-                let dav_url = match imap::discover_dav_endpoint(domain, "carddav").await {
-                    Some(url) => url,
-                    None => { tracing::warn!("Could not discover CardDAV endpoint for {}", account.email); continue; }
-                };
-                let password = auth::get_password(&account.id, "imap").unwrap_or_default();
-                if let Ok(client) = carddav::CardDavClient::new(&dav_url, &account.email, &password) {
-                    let engine = carddav::SyncEngine::new(client);
-                    let contact_repo = ContactRepository::new(&pool);
-                    if let Ok(books) = engine.discover_full_chain(&dav_url).await {
-                        for book in books {
-                            let old_token = contact_repo.get_address_books_for_account(&account.id).await.ok()
-                                .and_then(|books| books.into_iter().find(|b| b.url == book.url))
-                                .and_then(|b| b.sync_token);
-                            if let Ok((changed, deleted, new_token)) = engine.sync_collection(&book, old_token.as_deref()).await {
-                                let book_id = contact_repo.upsert_address_book(&account.id, &book.url, &book.display_name, book.ctag.as_deref(), Some(&new_token)).await.map(|b| b.id).unwrap_or(0);
-                                for c in changed {
-                                    let _ = contact_repo.upsert_contact(book_id, &c.uid, &c.etag, &c.url, &c.vcard_data, None).await;
-                                }
-                                for href in deleted {
-                                    let _ = contact_repo.delete_contact_by_url(book_id, &href).await;
-                                }
-                            } else {
-                                let _ = contact_repo.upsert_address_book(&account.id, &book.url, &book.display_name, book.ctag.as_deref(), book.sync_token.as_deref()).await;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        sleep(Duration::from_secs(60 * 15)).await;
-    }
+	loop {
+		let acc_repo = AccountRepository::new(&pool);
+		if let Ok(accounts) = acc_repo.list_all().await {
+			for account in accounts {
+				let domain = account.email.split('@').nth(1).unwrap_or(&account.imap_host);
+				let dav_url = match imap::discover_dav_endpoint(domain, "carddav").await {
+					Some(url) => url,
+					None => { tracing::warn!("Could not discover CardDAV endpoint for {}", account.email); continue; }
+				};
+
+				let password = match auth::get_password(&account.id, "imap") {
+					Ok(p) => p,
+					Err(e) => {
+						tracing::warn!("Skipping CardDAV sync for {}: Keychain access failed ({})", account.email, e);
+						continue;
+					}
+				};
+
+				if let Ok(client) = carddav::CardDavClient::new(&dav_url, &account.email, &password) {
+					let engine = carddav::SyncEngine::new(client);
+					let contact_repo = ContactRepository::new(&pool);
+					if let Ok(books) = engine.discover_full_chain(&dav_url).await {
+						for book in books {
+							let old_token = contact_repo.get_address_books_for_account(&account.id).await.ok()
+							.and_then(|books| books.into_iter().find(|b| b.url == book.url))
+							.and_then(|b| b.sync_token);
+
+							if let Ok((changed, deleted, new_token)) = engine.sync_collection(&book, old_token.as_deref()).await {
+								let book_id = contact_repo.upsert_address_book(&account.id, &book.url, &book.display_name, book.ctag.as_deref(), Some(&new_token)).await.map(|b| b.id).unwrap_or(0);
+								for c in changed {
+									let _ = contact_repo.upsert_contact(book_id, &c.uid, &c.etag, &c.url, &c.vcard_data, None).await;
+								}
+								for href in deleted {
+									let _ = contact_repo.delete_contact_by_url(book_id, &href).await;
+								}
+							} else {
+								let _ = contact_repo.upsert_address_book(&account.id, &book.url, &book.display_name, book.ctag.as_deref(), book.sync_token.as_deref()).await;
+							}
+						}
+					}
+				}
+			}
+		}
+		sleep(Duration::from_secs(60 * 15)).await;
+	}
 }
 
 /// Enforces the user's sync window preference (e.g. LAST_30_DAYS) by permanently

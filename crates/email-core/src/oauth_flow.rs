@@ -40,11 +40,12 @@ impl OAuth2Config {
             (None, uri)
         } else {
             let l = TcpListener::bind("127.0.0.1:0").await.map_err(|e| TokenError::StorageError(format!("Failed to bind local port: {}", e)))?;
-            let port = l.local_addr().unwrap().port();
+            let port = l.local_addr().map_err(|e| TokenError::StorageError(format!("Failed to get local port: {}", e)))?.port();
             (Some(l), format!("http://127.0.0.1:{}", port))
         };
 
-        let auth_url = build_auth_url(&self, &redirect_uri, &challenge, &state);
+        let auth_url = build_auth_url(&self, &redirect_uri, &challenge, &state)?;
+
         Ok((auth_url, PendingOAuth2Flow { listener, verifier, state, redirect_uri, config: self }))
     }
 }
@@ -99,8 +100,10 @@ fn build_auth_url(
     redirect_uri: &str,
     challenge: &str,
     state: &str,
-) -> String {
-    let mut url = Url::parse(&config.auth_url).unwrap();
+) -> Result<String, TokenError> {
+    let mut url = Url::parse(&config.auth_url)
+        .map_err(|e| TokenError::RefreshFailed(format!("Invalid auth URL: {}", e)))?;
+
     {
         let mut pairs = url.query_pairs_mut();
         pairs
@@ -111,11 +114,12 @@ fn build_auth_url(
             .append_pair("code_challenge", challenge)
             .append_pair("code_challenge_method", "S256")
             .append_pair("state", state);
+
         for (k, v) in &config.extra_auth_params {
             pairs.append_pair(k, v);
         }
     }
-    url.to_string()
+    Ok(url.to_string())
 }
 
 fn extract_params_from_request(request: &str) -> Option<(String, String)> {
