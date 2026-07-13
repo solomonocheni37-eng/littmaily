@@ -63,6 +63,7 @@ export function sanitizeEmailDom(html: string): string {
 }
 
 export function buildSrcdoc(isDark: boolean): string {
+  // The "Desk" background adapts to the app's theme
   const canvasBg = isDark ? '#27272a' : '#e5e7eb';
 
   const csp = `default-src 'none'; style-src 'unsafe-inline'; img-src * data:; media-src * data:; font-src * data:; script-src 'nonce-littmaily-internal'; base-uri 'none'; form-action 'none';`;
@@ -79,51 +80,66 @@ export function buildSrcdoc(isDark: boolean): string {
 <style>
   * { box-sizing: border-box; }
 
-  /* THE VIEWPORT (PDF Viewer Canvas) */
+  /* THE VIEWPORT (Handles horizontal scrolling when zoomed in) */
   html {
-    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
     background-color: ${canvasBg};
     margin: 0;
     padding: 0;
-    overflow-x: auto; /* Shows horizontal scrollbar ONLY when zoomed paper exceeds viewport */
-    overflow-y: hidden; /* Parent Tauri window handles vertical scrolling */
   }
 
   body {
     margin: 0;
-    padding: 24px 0; /* Top/Bottom padding for the paper shadow */
-    background: transparent;
+    padding: 0;
+    overflow: hidden;
   }
 
-  /* THE SCROLL ANCHOR */
-  #canvas {
-    margin: 0 auto; /* Centers when small, anchors to left:0 when wider than viewport */
-    width: 800px; /* Initial width, dynamically updated by JS */
-    height: auto;
+  /* THE STAGE (Centers the paper when zoomed out, expands viewport when zoomed in) */
+  #stage {
+    min-width: 100%;
+    display: flex;
+    justify-content: center;
+    padding: 24px 0;
+    box-sizing: border-box;
   }
 
-  /* THE PAPER (Frozen Layout) */
-  #paper {
-    width: 800px; /* STRICT FIXED WIDTH. Text will NEVER reflow. */
-    min-height: 500px;
-    padding: 48px;
-    background-color: #ffffff; /* ALWAYS white, like a real PDF */
-    color: #18181b;
-    box-shadow: ${isDark ? '0 4px 12px rgba(0,0,0,0.4)' : '0 4px 12px rgba(0,0,0,0.1)'};
-    font-family: system-ui, -apple-system, sans-serif;
-    line-height: 1.6;
-    word-wrap: break-word;
-
-    /* PDF Scaling Engine */
-    transform-origin: top left; /* Anchors to top-left to prevent negative coordinate clipping */
+  /* THE SCALER (GPU-accelerated zoom without text reflow) */
+  #scaler {
+    width: 800px;
+    transform-origin: top center;
     transform: scale(1);
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
+  /* THE PAPER (Always white for perfect contrast) */
+  #paper {
+    width: 800px;
+    background-color: #ffffff;
+    color: #18181b;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    padding: 48px;
+    font-family: system-ui, -apple-system, sans-serif;
+    line-height: 1.6;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
   #paper a { color: #4f46e5; }
-  img, svg, video, canvas { max-width: 100% !important; height: auto !important; }
-  table { max-width: 100% !important; border-collapse: collapse; }
-  img[width="1"], img[height="1"], img[width="0"], img[height="0"] { display: none !important; }
+
+  /* NUCLEAR CONTAINMENT: Prevents rogue email HTML from breaking the 800px layout */
+  #paper * {
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+  #paper table {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-collapse: collapse;
+  }
+  #paper img, #paper svg, #paper video, #paper canvas {
+    height: auto !important;
+  }
 
   /* Premium Scrollbar Styling */
   ::-webkit-scrollbar { width: 12px; height: 12px; }
@@ -134,29 +150,38 @@ export function buildSrcdoc(isDark: boolean): string {
 </style>
 </head>
 <body>
-<div id="canvas">
-  <div id="paper"></div>
+<div id="stage">
+  <div id="scaler">
+    <div id="paper"></div>
+  </div>
 </div>
 <script nonce="littmaily-internal">
   const paper = document.getElementById('paper');
-  const canvas = document.getElementById('canvas');
+  const scaler = document.getElementById('scaler');
+  const stage = document.getElementById('stage');
+  let currentZoom = 1;
   let lastHeight = 0;
 
   function resize() {
-    if (!paper || !canvas) return;
+    if (!paper || !scaler || !stage) return;
 
-    // getBoundingClientRect returns the TRUE visual dimensions AFTER CSS transform: scale() is applied
-    const rect = paper.getBoundingClientRect();
+    // offsetHeight returns the true unscaled layout height
+    const unscaledHeight = paper.offsetHeight;
 
-    // Force the canvas wrapper to exactly match the scaled paper's dimensions.
-    // This allows the parent html element to show a horizontal scrollbar when scaled > 100%
-    canvas.style.width = rect.width + 'px';
-    canvas.style.height = rect.height + 'px';
+    // Apply GPU-accelerated scale
+    scaler.style.transform = \`scale(\${currentZoom})\`;
 
-    // Calculate total visual height including body padding
-    const visualHeight = rect.height + 48;
+    // Calculate exact visual footprint
+    const visualWidth = 800 * currentZoom;
+    const visualHeight = (unscaledHeight * currentZoom) + 48; // 48px for stage padding
 
-    // CRITICAL: Only postMessage if height changed by more than 2px to prevent micro-thrashing
+    // Force stage to match visual footprint.
+    // When visualWidth < 100%, min-width:100% centers it via flexbox.
+    // When visualWidth > 100%, it forces html to show horizontal scrollbars.
+    stage.style.width = \`\${visualWidth}px\`;
+    stage.style.height = \`\${visualHeight}px\`;
+
+    // Only postMessage if height changed significantly to prevent micro-thrashing
     if (Math.abs(visualHeight - lastHeight) > 2) {
       lastHeight = visualHeight;
       window.parent.postMessage({ type: 'email-resize', height: visualHeight }, '*');
@@ -185,11 +210,7 @@ export function buildSrcdoc(isDark: boolean): string {
       paper.innerHTML = event.data.html;
       setTimeout(resize, 0);
     } else if (event.data && event.data.type === 'zoom-update') {
-      const z = event.data.zoom / 100;
-
-      // Apply CSS Transform instead of Zoom.
-      // This freezes the internal layout at 800px, guaranteeing text NEVER reflows and images NEVER shift.
-      paper.style.transform = \`scale(\${z})\`;
+      currentZoom = event.data.zoom / 100;
 
       // Recalculate dimensions continuously during the 300ms CSS transition
       let startTime = performance.now();
