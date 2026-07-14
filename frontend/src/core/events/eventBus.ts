@@ -1,7 +1,9 @@
+// FILE: ./frontend/src/core/events/eventBus.ts
 export type AppEvents = {
   "inbox:refresh": undefined;
   "mailboxes:refresh": undefined;
   "email:action": { uid: number; action: string; destMailbox?: string };
+  "email:reopen": { uid: number };
 };
 
 type EventHandler<T> = (payload: T) => void;
@@ -19,7 +21,6 @@ class TypedEventBus {
       this.listeners.set(event, new Set());
     }
     this.listeners.get(event)!.add(handler);
-
     // Returns a cleanup function specifically designed to be passed directly into
     // SolidJS's `onCleanup()`, preventing memory leaks when components unmount.
     return () => this.off(event, handler);

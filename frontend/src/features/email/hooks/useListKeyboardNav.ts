@@ -1,3 +1,4 @@
+// FILE: ./frontend/src/features/email/hooks/useListKeyboardNav.ts
 import { useAppContext } from "@/core/store/AppStore";
 import { useHotkeys } from "@/core/hooks/useHotkeys";
 import { EmailApi } from "@/core/ipc";
@@ -15,18 +16,15 @@ export function useListKeyboardNav(
   const navigate = (direction: 1 | -1) => {
     const currentEmails = emails();
     if (currentEmails.length === 0) return;
-
     const currentIndex = state.focusedUid
       ? currentEmails.findIndex((e) => e.uid === state.focusedUid)
       : -1;
     let nextIndex = currentIndex + direction;
-
     if (nextIndex < 0) nextIndex = 0;
     if (nextIndex >= currentEmails.length) {
       nextIndex = currentEmails.length - 1;
       if (hasMore() && !isLoading()) fetchPage();
     }
-
     setFocusedUid(currentEmails[nextIndex].uid);
   };
 
@@ -35,6 +33,17 @@ export function useListKeyboardNav(
     if (!uid) return;
     const email = emails().find((e) => e.uid === uid);
     if (email) {
+      // If already open, trigger reopen event instead of doing nothing
+      if (
+        state.selectedEmail &&
+        state.selectedEmail.uid === email.uid &&
+        state.selectedEmail.account_id === email.account_id &&
+        state.selectedEmail.mailbox_name === email.mailbox_name
+      ) {
+        appEvents.emit("email:reopen", { uid: email.uid });
+        return;
+      }
+
       selectEmail(email);
       let isRead = false;
       try {

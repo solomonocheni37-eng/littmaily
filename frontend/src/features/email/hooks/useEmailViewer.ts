@@ -10,6 +10,7 @@ import { open } from "@tauri-apps/plugin-shell";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { EmailApi } from "@/core/ipc";
 import { useAppContext } from "@/core/store/AppStore";
+import { appEvents } from "@/core/events/eventBus";
 import {
   sanitizeEmailDom,
   buildSrcdoc,
@@ -21,6 +22,7 @@ export function useEmailViewer() {
   const [imagesLoaded, setImagesLoaded] = createSignal(false);
   const [renderedHtml, setRenderedHtml] = createSignal<string | null>(null);
   const [zoom, setZoom] = createSignal(100);
+  const [panMode, setPanMode] = createSignal(false);
   const [iframeReady, setIframeReady] = createSignal(false);
   let iframeRef: HTMLIFrameElement | undefined;
 
@@ -34,7 +36,6 @@ export function useEmailViewer() {
       setImagesLoaded(false);
       setRenderedHtml(null);
       setIframeReady(false);
-
       const email = state.selectedEmail;
       let body = await EmailApi.getCachedBody(
         email.account_id,
@@ -48,7 +49,6 @@ export function useEmailViewer() {
           email.uid
         );
       }
-
       if (body?.html_body) {
         setRenderedHtml(sanitizeEmailDom(body.html_body));
       }
@@ -58,13 +58,8 @@ export function useEmailViewer() {
 
   const isDark = () => document.documentElement.classList.contains("dark");
 
-  // NEW: Generate a blob URL to bypass WebKitGTK srcdoc CSP inheritance bugs.
-  // Using a blob URL creates an isolated document context that respects its own
-  // internal <meta> CSP without being overridden by the parent window's strict CSP.
   const [blobUrl, setBlobUrl] = createSignal<string | null>(null);
-
   createEffect(() => {
-    // Track isDark() to regenerate the blob URL with correct theme styles when toggled
     const dark = isDark();
     const html = buildSrcdoc(dark);
     const blob = new Blob([html], { type: "text/html" });
@@ -73,15 +68,11 @@ export function useEmailViewer() {
     onCleanup(() => URL.revokeObjectURL(url));
   });
 
-  // FIX: Removed zoom() from here so the iframe doesn't reload when zooming
   createEffect(() => {
     isDark();
     setIframeReady(false);
   });
 
-  // Send HTML to iframe via postMessage when both are ready.
-  // Using postMessage instead of the srcdoc prop prevents iframe reloads when content changes,
-  // preserving scroll position and avoiding visual flicker.
   createEffect(() => {
     const html = renderedHtml();
     if (iframeReady() && iframeRef) {
@@ -99,7 +90,6 @@ export function useEmailViewer() {
     }
   });
 
-  // NEW: Send zoom updates smoothly without reloading the iframe
   createEffect(() => {
     const z = zoom();
     if (iframeReady() && iframeRef) {
@@ -110,12 +100,21 @@ export function useEmailViewer() {
     }
   });
 
+  createEffect(() => {
+    const mode = panMode();
+    if (iframeReady() && iframeRef) {
+      iframeRef.contentWindow?.postMessage(
+        { type: "mode-update", panMode: mode },
+        "*"
+      );
+    }
+  });
+
   const handleLinkClick = async (href: string) => {
     if (!href || href.startsWith("mailto:")) return;
     const displayHref = href.length > 60 ? `${href.substring(0, 60)}...` : href;
-
     const isConfirmed = await confirm(
-      `You are about to open an external link.\n\nDestination:\n${displayHref}\n\nDo you trust this sender?`,
+      `You are about to open an external link.\nDestination:\n${displayHref}\nDo you trust this sender?`,
       { title: "Security Warning", okLabel: "Open Link", cancelLabel: "Cancel" }
     );
     if (isConfirmed) await open(href);
@@ -124,13 +123,17 @@ export function useEmailViewer() {
   const triggerLoadRemoteImages = async () => {
     const html = emailBody()?.html_body;
     if (!html) return;
-
     const serializedHtml = await loadRemoteImages(html);
     setRenderedHtml(serializedHtml);
     setImagesLoaded(true);
   };
 
   onMount(() => {
+    // Listen for manual reopen/refresh triggers
+    const cleanupReopen = appEvents.on("email:reopen", () => {
+      refetch();
+    });
+
     const handleMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === "email-link-click") {
         handleLinkClick(event.data.href);
@@ -139,7 +142,6 @@ export function useEmailViewer() {
         event.data.type === "email-resize" &&
         iframeRef
       ) {
-        // Add 40px padding to the height to prevent content from touching the iframe edges.
         iframeRef.style.height = `${event.data.height + 40}px`;
       } else if (event.data && event.data.type === "iframe-ready") {
         setIframeReady(true);
@@ -147,7 +149,10 @@ export function useEmailViewer() {
     };
 
     window.addEventListener("message", handleMessage);
-    onCleanup(() => window.removeEventListener("message", handleMessage));
+    onCleanup(() => {
+      window.removeEventListener("message", handleMessage);
+      cleanupReopen();
+    });
   });
 
   return {
@@ -157,9 +162,11 @@ export function useEmailViewer() {
     imagesLoaded,
     renderedHtml,
     iframeRef: (el: HTMLIFrameElement) => (iframeRef = el),
-    blobUrl, // CHANGED: Exposed blobUrl instead of buildSrcdoc
+    blobUrl,
     triggerLoadRemoteImages,
     zoom,
     setZoom,
+    panMode,
+    setPanMode,
   };
 }

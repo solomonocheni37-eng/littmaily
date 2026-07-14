@@ -1,4 +1,4 @@
-// FILE: ./frontend/src/features/sync/SyncListener.tsx
+// ./frontend/src/features/sync/SyncListener.tsx
 import { onMount, onCleanup, For, Show } from "solid-js";
 import { listen } from "@tauri-apps/api/event";
 import { commands } from "@/core/types/generated";
@@ -16,7 +16,23 @@ const SyncListener = () => {
   let unlistenStateFn: (() => void) | undefined;
 
   onMount(async () => {
-    // Listens to Tauri backend events and emits frontend appEvents to trigger UI refreshes without polling.
+    // ==========================================
+    // GLOBAL AUTO-SYNC FOR BADGES & SIDEBAR
+    // ==========================================
+    // Catches all user interactions (Swipe, Hotkeys, Context Menu, Reading Pane)
+    // and automatically updates the OS Badge and Sidebar counts after the DB updates.
+    const cleanupAction = appEvents.on("email:action", () => {
+      setTimeout(async () => {
+        appEvents.emit("mailboxes:refresh");
+        try {
+          await commands.updateBadgeCount();
+        } catch (e) {
+          if (import.meta.env.DEV) console.error("Badge update failed:", e);
+        }
+      }, 300); // 300ms debounce allows the Rust optimistic DB update to commit
+    });
+
+    // Listens to Tauri backend events for background syncs
     unlistenFn = await listen<SyncPayload>("sync:new-email", async (event) => {
       const mb = event.payload.mailbox;
       if (
@@ -26,13 +42,7 @@ const SyncListener = () => {
         appEvents.emit("inbox:refresh");
       }
       appEvents.emit("mailboxes:refresh");
-
-      // Update badge count when new emails arrive
-      try {
-        await commands.updateBadgeCount();
-      } catch (e) {
-        if (import.meta.env.DEV) console.error("Failed to update badge:", e);
-      }
+      try { await commands.updateBadgeCount(); } catch (e) {}
     });
 
     unlistenStateFn = await listen<StatePayload>(
@@ -45,19 +55,15 @@ const SyncListener = () => {
           appEvents.emit("inbox:refresh");
         }
         appEvents.emit("mailboxes:refresh");
-
-        // Update badge count when state changes (e.g., emails marked as read)
-        try {
-          await commands.updateBadgeCount();
-        } catch (e) {
-          if (import.meta.env.DEV) console.error("Failed to update badge:", e);
-        }
+        try { await commands.updateBadgeCount(); } catch (e) {}
       }
     );
 
     unlistenErrorFn = await listen<string>("sync:error", (event) => {
       console.error("Sync error:", event.payload);
     });
+
+    onCleanup(() => cleanupAction());
   });
 
   onCleanup(() => {

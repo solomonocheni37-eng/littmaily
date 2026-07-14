@@ -1,4 +1,4 @@
-// ./frontend/src/features/email/views/EmailListPane.tsx
+// FILE: ./frontend/src/features/email/views/EmailListPane.tsx
 import {
   For,
   createEffect,
@@ -10,6 +10,7 @@ import {
 } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import type { Message } from "@/core/types/generated";
+import { commands } from "@/core/types/generated";
 import { EmailApi } from "@/core/ipc";
 import { useAppContext } from "@/core/store/AppStore";
 import EmailListItem from "@/features/email/components/EmailListItem";
@@ -153,7 +154,13 @@ const EmailListPane = () => {
       } email${selected.length > 1 ? "s" : ""}`
     );
     clearSelection();
+
     appEvents.emit("mailboxes:refresh");
+    try {
+      await commands.updateBadgeCount();
+    } catch (e) {
+      if (import.meta.env.DEV) console.error(e);
+    }
   };
 
   const handleEmailAction = (payload: {
@@ -197,11 +204,13 @@ const EmailListPane = () => {
 
   const handleRefresh = async () => {
     if (!state.selectedAccountId || !state.selectedMailboxName) return;
+
     if (state.selectedMailboxName.startsWith("__")) {
       untrack(() => fetchPage(true));
       toast("Refreshed");
       return;
     }
+
     try {
       const count = await EmailApi.checkForNew(
         state.selectedAccountId,
@@ -236,6 +245,18 @@ const EmailListPane = () => {
       if (email.id) toggleSelect(email.id.toString());
       return;
     }
+
+    // CRITICAL FIX: If the user clicks an already open email, force a refetch/reopen
+    if (
+      state.selectedEmail &&
+      state.selectedEmail.uid === email.uid &&
+      state.selectedEmail.account_id === email.account_id &&
+      state.selectedEmail.mailbox_name === email.mailbox_name
+    ) {
+      appEvents.emit("email:reopen", { uid: email.uid });
+      return;
+    }
+
     setFocusedUid(email.uid);
     selectEmail(email);
 
@@ -404,6 +425,7 @@ const EmailListPane = () => {
                       </div>
                     );
                   }
+
                   return (
                     <div
                       class="virtual-row"

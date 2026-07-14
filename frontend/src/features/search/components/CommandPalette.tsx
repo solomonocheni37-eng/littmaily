@@ -5,6 +5,7 @@ import { SearchApi } from "@/core/ipc";
 import { useAppContext } from "@/core/store/AppStore";
 import { Search, Mail, Calendar, User, X } from "lucide-solid";
 import type { UnifiedSearchItem } from "@/core/types/generated";
+import { appEvents } from "@/core/events/eventBus";
 
 export default function CommandPalette() {
   const { state, setShowSearch, selectEmail } = useAppContext();
@@ -56,7 +57,19 @@ export default function CommandPalette() {
 
   const handleSelect = (item: UnifiedSearchItem) => {
     if (item.item_type === "email" && item.data.type === "Email") {
-      selectEmail(item.data.record);
+      const record = item.data.record;
+
+      // If the selected search result is already open, trigger a reopen
+      if (
+        state.selectedEmail &&
+        state.selectedEmail.uid === record.uid &&
+        state.selectedEmail.account_id === record.account_id &&
+        state.selectedEmail.mailbox_name === record.mailbox_name
+      ) {
+        appEvents.emit("email:reopen", { uid: record.uid });
+      } else {
+        selectEmail(record);
+      }
       setShowSearch(false);
     }
   };
@@ -86,8 +99,6 @@ export default function CommandPalette() {
                   setQuery(e.currentTarget.value);
                   handleSearch(e.currentTarget.value);
                 }}
-                // autofocus ensures the input is focused immediately when the portal renders,
-                // bypassing SolidJS's normal mount cycle which can delay focus in portals.
                 autofocus
                 class="flex-1 bg-transparent outline-none text-lg text-surface-900 dark:text-surface-50 placeholder:text-surface-400 dark:placeholder:text-surface-500"
               />

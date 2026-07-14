@@ -16,6 +16,8 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  Hand,
+  MousePointer2,
 } from "lucide-solid";
 import { toast } from "@/core/ui/toast";
 import { EmailApi } from "@/core/ipc";
@@ -36,6 +38,8 @@ const ReadingPane = () => {
     triggerLoadRemoteImages,
     zoom,
     setZoom,
+    panMode,
+    setPanMode,
   } = useEmailViewer();
 
   let scrollContainerRef: HTMLDivElement | undefined;
@@ -217,6 +221,21 @@ const ReadingPane = () => {
                   <Maximize2 size={14} />
                 </button>
               </div>
+
+              {/* NEW: Interaction / Pan Mode Toggle */}
+              <div class="flex items-center border-l border-surface-200 dark:border-surface-800 pl-2 ml-2">
+                <button
+                  onClick={() => setPanMode((p) => !p)}
+                  class={`p-1.5 rounded transition-colors ${
+                    panMode()
+                      ? "bg-brand-500 text-white shadow-sm"
+                      : "hover:bg-surface-200 dark:hover:bg-surface-800 text-surface-600 dark:text-surface-300"
+                  }`}
+                  title={panMode() ? "Interaction Mode (Select Text)" : "Hand Tool (Drag to Pan)"}
+                >
+                  {panMode() ? <Hand size={16} /> : <MousePointer2 size={16} />}
+                </button>
+              </div>
             </div>
           </div>
           <div class="text-sm text-surface-600 dark:text-surface-400">
@@ -228,8 +247,7 @@ const ReadingPane = () => {
           </div>
         </div>
 
-        {/* Added overscroll-contain to prevent scroll chaining */}
-        <div ref={scrollContainerRef} class="flex-1 overflow-y-auto overscroll-contain">
+        <div ref={scrollContainerRef} class="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
           <Show
             when={emailBody.state === "ready"}
             fallback={
