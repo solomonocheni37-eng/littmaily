@@ -59,16 +59,33 @@ export function useEmailViewer() {
 
   const isDark = () => document.documentElement.classList.contains("dark");
 
-  // Generate srcdoc string directly instead of using blob URLs
+  // Generate srcdoc shell (NO HTML injected directly to avoid template literal bugs)
   const srcdoc = createMemo(() => {
     const dark = isDark();
-    const html = renderedHtml() || "";
-    return buildSrcdoc(dark, html);
+    return buildSrcdoc(dark);
   });
 
   createEffect(() => {
     isDark();
     setIframeReady(false);
+  });
+
+  // RESTORED: Push HTML via postMessage when renderedHtml changes
+  createEffect(() => {
+    const html = renderedHtml();
+    if (iframeReady() && iframeRef) {
+      if (html) {
+        iframeRef.contentWindow?.postMessage(
+          { type: "email-content", html },
+          "*"
+        );
+      } else {
+        iframeRef.contentWindow?.postMessage(
+          { type: "email-content", html: "" },
+          "*"
+        );
+      }
+    }
   });
 
   createEffect(() => {
@@ -124,7 +141,6 @@ export function useEmailViewer() {
         iframeRef.style.height = `${event.data.height + 40}px`;
       } else if (event.data && event.data.type === "iframe-ready") {
         setIframeReady(true);
-        // Push current state immediately when iframe loads
         if (iframeRef) {
           iframeRef.contentWindow?.postMessage(
             { type: "zoom-update", zoom: zoom() },

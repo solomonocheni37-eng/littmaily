@@ -62,7 +62,7 @@ export function sanitizeEmailDom(html: string): string {
   return doc.head.innerHTML + doc.body.innerHTML;
 }
 
-export function buildSrcdoc(isDark: boolean, emailHtml: string = ""): string {
+export function buildSrcdoc(isDark: boolean): string {
   const canvasBg = isDark ? '#27272a' : '#e5e7eb';
   const csp = `default-src 'none'; style-src 'unsafe-inline'; img-src * data:; media-src * data:; font-src * data:; script-src 'nonce-littmaily-internal'; base-uri 'none'; form-action 'none';`;
 
@@ -128,7 +128,7 @@ body {
 <body>
 <div id="stage">
   <div id="scaler">
-    <div id="paper">${emailHtml}</div>
+    <div id="paper"></div>
   </div>
 </div>
 <script nonce="littmaily-internal">
@@ -217,22 +217,34 @@ document.addEventListener('pointercancel', endPan);
 
 function resize() {
   if (!paper || !scaler || !stage) return;
-  const unscaledHeight = paper.offsetHeight;
-  const paperWidth = paper.offsetWidth;
 
-  scaler.style.transform = \`scale(\${currentZoom})\`;
+  scaler.style.transform = 'scale(1)';
 
-  const visualWidth = Math.floor(paperWidth * currentZoom);
-  const visualHeight = Math.floor((unscaledHeight * currentZoom) + 48);
+  requestAnimationFrame(() => {
+    const containerWidth = paper.clientWidth;
+    const intrinsicWidth = paper.scrollWidth;
 
-  stage.style.width = \`\${visualWidth}px\`;
-  stage.style.height = \`\${visualHeight}px\`;
+    let baseScale = 1;
+    if (intrinsicWidth > containerWidth) {
+      baseScale = containerWidth / intrinsicWidth;
+    }
 
-  if (Math.abs(visualHeight - lastHeight) > 2) {
-    lastHeight = visualHeight;
-    window.parent.postMessage({ type: 'email-resize', height: visualHeight }, '*');
-  }
-  updateCursor();
+    const finalScale = baseScale * currentZoom;
+    scaler.style.transform = \`scale(\${finalScale})\`;
+
+    const visualWidth = Math.floor(containerWidth * finalScale);
+    const unscaledHeight = paper.scrollHeight;
+    const visualHeight = Math.floor((unscaledHeight * finalScale) + 48);
+
+    stage.style.width = \`\${visualWidth}px\`;
+    stage.style.height = \`\${visualHeight}px\`;
+
+    if (Math.abs(visualHeight - lastHeight) > 2) {
+      lastHeight = visualHeight;
+      window.parent.postMessage({ type: 'email-resize', height: visualHeight }, '*');
+    }
+    updateCursor();
+  });
 }
 
 const observer = new MutationObserver(resize);
@@ -252,16 +264,12 @@ document.addEventListener('click', function(e) {
 });
 
 window.addEventListener('message', function(event) {
-  if (event.data && event.data.type === 'zoom-update') {
+  if (event.data && event.data.type === 'email-content') {
+    paper.innerHTML = event.data.html;
+    setTimeout(resize, 0);
+  } else if (event.data && event.data.type === 'zoom-update') {
     currentZoom = event.data.zoom / 100;
-    let startTime = performance.now();
-    function step() {
-      resize();
-      if (performance.now() - startTime < 350) {
-        requestAnimationFrame(step);
-      }
-    }
-    requestAnimationFrame(step);
+    resize();
   } else if (event.data && event.data.type === 'mode-update') {
     isPanMode = event.data.panMode;
     updateCursor();
@@ -280,9 +288,7 @@ window.parent.postMessage({ type: 'iframe-ready' }, '*');
 window.addEventListener('resize', resize);
 </script>
 <style>
-/* CRITICAL FIX: Shell containment CSS placed at the very end of the document.
-   This guarantees that our layout constraints override any rogue !important
-   rules injected by the email's own <style> tags. */
+/* CSS Containment Fallback (Handles 99% of emails natively) */
 #paper * {
   max-width: 100% !important;
   box-sizing: border-box !important;
@@ -303,6 +309,7 @@ window.addEventListener('resize', resize);
 #paper td, #paper th {
   max-width: 100% !important;
   word-break: break-word !important;
+  overflow-wrap: break-word !important;
   overflow: hidden !important;
 }
 </style>
