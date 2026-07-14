@@ -5,6 +5,7 @@ import {
   onMount,
   onCleanup,
   createEffect,
+  createMemo,
 } from "solid-js";
 import { open } from "@tauri-apps/plugin-shell";
 import { confirm } from "@tauri-apps/plugin-dialog";
@@ -58,36 +59,16 @@ export function useEmailViewer() {
 
   const isDark = () => document.documentElement.classList.contains("dark");
 
-  const [blobUrl, setBlobUrl] = createSignal<string | null>(null);
-  createEffect(() => {
+  // Generate srcdoc string directly instead of using blob URLs
+  const srcdoc = createMemo(() => {
     const dark = isDark();
-    const html = buildSrcdoc(dark);
-    const blob = new Blob([html], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    setBlobUrl(url);
-    onCleanup(() => URL.revokeObjectURL(url));
+    const html = renderedHtml() || "";
+    return buildSrcdoc(dark, html);
   });
 
   createEffect(() => {
     isDark();
     setIframeReady(false);
-  });
-
-  createEffect(() => {
-    const html = renderedHtml();
-    if (iframeReady() && iframeRef) {
-      if (html) {
-        iframeRef.contentWindow?.postMessage(
-          { type: "email-content", html },
-          "*"
-        );
-      } else {
-        iframeRef.contentWindow?.postMessage(
-          { type: "email-content", html: "" },
-          "*"
-        );
-      }
-    }
   });
 
   createEffect(() => {
@@ -129,11 +110,9 @@ export function useEmailViewer() {
   };
 
   onMount(() => {
-    // Listen for manual reopen/refresh triggers
     const cleanupReopen = appEvents.on("email:reopen", () => {
       refetch();
     });
-
     const handleMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === "email-link-click") {
         handleLinkClick(event.data.href);
@@ -145,9 +124,19 @@ export function useEmailViewer() {
         iframeRef.style.height = `${event.data.height + 40}px`;
       } else if (event.data && event.data.type === "iframe-ready") {
         setIframeReady(true);
+        // Push current state immediately when iframe loads
+        if (iframeRef) {
+          iframeRef.contentWindow?.postMessage(
+            { type: "zoom-update", zoom: zoom() },
+            "*"
+          );
+          iframeRef.contentWindow?.postMessage(
+            { type: "mode-update", panMode: panMode() },
+            "*"
+          );
+        }
       }
     };
-
     window.addEventListener("message", handleMessage);
     onCleanup(() => {
       window.removeEventListener("message", handleMessage);
@@ -162,7 +151,7 @@ export function useEmailViewer() {
     imagesLoaded,
     renderedHtml,
     iframeRef: (el: HTMLIFrameElement) => (iframeRef = el),
-    blobUrl,
+    srcdoc,
     triggerLoadRemoteImages,
     zoom,
     setZoom,

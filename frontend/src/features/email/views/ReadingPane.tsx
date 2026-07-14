@@ -34,7 +34,7 @@ const ReadingPane = () => {
     imagesLoaded,
     renderedHtml,
     iframeRef,
-    blobUrl,
+    srcdoc,
     triggerLoadRemoteImages,
     zoom,
     setZoom,
@@ -222,7 +222,6 @@ const ReadingPane = () => {
                 </button>
               </div>
 
-              {/* NEW: Interaction / Pan Mode Toggle */}
               <div class="flex items-center border-l border-surface-200 dark:border-surface-800 pl-2 ml-2">
                 <button
                   onClick={() => setPanMode((p) => !p)}
@@ -231,7 +230,11 @@ const ReadingPane = () => {
                       ? "bg-brand-500 text-white shadow-sm"
                       : "hover:bg-surface-200 dark:hover:bg-surface-800 text-surface-600 dark:text-surface-300"
                   }`}
-                  title={panMode() ? "Interaction Mode (Select Text)" : "Hand Tool (Drag to Pan)"}
+                  title={
+                    panMode()
+                      ? "Interaction Mode (Select Text)"
+                      : "Hand Tool (Drag to Pan)"
+                  }
                 >
                   {panMode() ? <Hand size={16} /> : <MousePointer2 size={16} />}
                 </button>
@@ -310,7 +313,7 @@ const ReadingPane = () => {
                   ref={iframeRef}
                   sandbox="allow-scripts"
                   class="w-full min-h-[400px] bg-transparent rounded-lg shadow-sm border border-surface-200 dark:border-surface-800 transition-[height] duration-300 ease-in-out"
-                  src={blobUrl() || undefined}
+                  srcdoc={srcdoc()}
                   title="Email Content"
                 />
               </Show>
