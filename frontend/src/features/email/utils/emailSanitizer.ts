@@ -1,4 +1,3 @@
-// FILE: ./frontend/src/features/email/utils/emailSanitizer.ts
 import { EmailApi } from "@/core/ipc";
 
 export const FALLBACK_PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP";
@@ -59,12 +58,20 @@ export function sanitizeEmailDom(html: string): string {
     .querySelectorAll("iframe, frame, object, embed")
     .forEach((el) => el.remove());
 
+  // CRITICAL FIX: Inject nonce into all email <style> tags
+  // WebKitGTK and WebView2 production builds enforce strict CSP on srcdoc iframes.
+  // Without this nonce, the WebView will block all inline styles and render a white screen.
+  doc.querySelectorAll("style").forEach((el) => {
+    el.setAttribute("nonce", "littmaily-internal");
+  });
+
   return doc.head.innerHTML + doc.body.innerHTML;
 }
 
 export function buildSrcdoc(isDark: boolean): string {
-  const canvasBg = isDark ? '#27272a' : '#e5e7eb';
-  const csp = `default-src 'none'; style-src 'unsafe-inline'; img-src * data:; media-src * data:; font-src * data:; script-src 'nonce-littmaily-internal'; base-uri 'none'; form-action 'none';`;
+  const canvasBg = isDark ? "#27272a" : "#e5e7eb";
+  // CRITICAL: Include 'nonce-littmaily-internal' in style-src to allow our shell styles
+  const csp = `default-src 'none'; style-src 'unsafe-inline' 'nonce-littmaily-internal'; img-src * data:; media-src * data:; font-src * data:; script-src 'nonce-littmaily-internal'; base-uri 'none'; form-action 'none';`;
 
   return `<!DOCTYPE html>
 <html>
@@ -74,7 +81,7 @@ export function buildSrcdoc(isDark: boolean): string {
 <meta name="color-scheme" content="light only">
 <meta name="supported-color-schemes" content="light">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
+<style nonce="littmaily-internal">
 * { box-sizing: border-box; }
 html {
   overflow-x: auto;
@@ -118,6 +125,28 @@ body {
   margin: 0 auto;
 }
 #paper a { color: #4f46e5; }
+#paper * {
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+#paper table {
+  width: 100% !important;
+  max-width: 100% !important;
+  border-collapse: collapse;
+  table-layout: auto !important;
+}
+#paper td, #paper th {
+  max-width: 100% !important;
+  word-break: break-word !important;
+  overflow: hidden !important;
+}
+#paper img, #paper svg, #paper video, #paper canvas {
+  max-width: 100% !important;
+  height: auto !important;
+  width: auto !important;
+  object-fit: contain !important;
+  display: block;
+}
 ::-webkit-scrollbar { width: 12px; height: 12px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background-color: rgba(150, 150, 150, 0.5); border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
@@ -139,6 +168,7 @@ let currentZoom = 1;
 let lastHeight = 0;
 let resizeTimer = null;
 
+// --- MODE & PAN LOGIC ---
 let isPanMode = false;
 let isPanning = false;
 let hasDragged = false;
@@ -152,6 +182,7 @@ function updateCursor() {
   } else {
     document.body.style.cursor = 'default';
   }
+
   const canPan = isPanMode && currentZoom > 1;
   document.body.style.userSelect = canPan ? 'none' : '';
   document.body.style.webkitUserSelect = canPan ? 'none' : '';
@@ -161,12 +192,14 @@ function updateCursor() {
 document.addEventListener('pointerdown', function(e) {
   if (!isPanMode || currentZoom <= 1) return;
   if (e.button !== 0) return;
+
   if (e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
 
   isPanning = true;
   hasDragged = false;
   panStartX = e.pageX;
   panStartY = e.pageY;
+
   panScrollLeft = window.scrollX || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
   panScrollTop = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
 
@@ -189,6 +222,7 @@ document.addEventListener('pointermove', function(e) {
   if (hasDragged) {
     const newX = panScrollLeft - walkX;
     const newY = panScrollTop - walkY;
+
     window.scrollTo(newX, newY);
     document.documentElement.scrollLeft = newX;
     document.documentElement.scrollTop = newY;
@@ -215,36 +249,26 @@ function endPan(e) {
 document.addEventListener('pointerup', endPan);
 document.addEventListener('pointercancel', endPan);
 
+// ------------------------
+
 function resize() {
   if (!paper || !scaler || !stage) return;
+  const unscaledHeight = paper.offsetHeight;
+  const paperWidth = paper.offsetWidth;
 
-  scaler.style.transform = 'scale(1)';
+  scaler.style.transform = \`scale(\${currentZoom})\`;
 
-  requestAnimationFrame(() => {
-    const containerWidth = paper.clientWidth;
-    const intrinsicWidth = paper.scrollWidth;
+  const visualWidth = Math.floor(paperWidth * currentZoom);
+  const visualHeight = Math.floor((unscaledHeight * currentZoom) + 48);
 
-    let baseScale = 1;
-    if (intrinsicWidth > containerWidth) {
-      baseScale = containerWidth / intrinsicWidth;
-    }
+  stage.style.width = \`\${visualWidth}px\`;
+  stage.style.height = \`\${visualHeight}px\`;
 
-    const finalScale = baseScale * currentZoom;
-    scaler.style.transform = \`scale(\${finalScale})\`;
-
-    const visualWidth = Math.floor(containerWidth * finalScale);
-    const unscaledHeight = paper.scrollHeight;
-    const visualHeight = Math.floor((unscaledHeight * finalScale) + 48);
-
-    stage.style.width = \`\${visualWidth}px\`;
-    stage.style.height = \`\${visualHeight}px\`;
-
-    if (Math.abs(visualHeight - lastHeight) > 2) {
-      lastHeight = visualHeight;
-      window.parent.postMessage({ type: 'email-resize', height: visualHeight }, '*');
-    }
-    updateCursor();
-  });
+  if (Math.abs(visualHeight - lastHeight) > 2) {
+    lastHeight = visualHeight;
+    window.parent.postMessage({ type: 'email-resize', height: visualHeight }, '*');
+  }
+  updateCursor();
 }
 
 const observer = new MutationObserver(resize);
@@ -269,7 +293,14 @@ window.addEventListener('message', function(event) {
     setTimeout(resize, 0);
   } else if (event.data && event.data.type === 'zoom-update') {
     currentZoom = event.data.zoom / 100;
-    resize();
+    let startTime = performance.now();
+    function step() {
+      resize();
+      if (performance.now() - startTime < 350) {
+        requestAnimationFrame(step);
+      }
+    }
+    requestAnimationFrame(step);
   } else if (event.data && event.data.type === 'mode-update') {
     isPanMode = event.data.panMode;
     updateCursor();
@@ -287,32 +318,6 @@ if (typeof ResizeObserver !== 'undefined') {
 window.parent.postMessage({ type: 'iframe-ready' }, '*');
 window.addEventListener('resize', resize);
 </script>
-<style>
-/* CSS Containment Fallback (Handles 99% of emails natively) */
-#paper * {
-  max-width: 100% !important;
-  box-sizing: border-box !important;
-}
-#paper img, #paper svg, #paper video, #paper canvas {
-  max-width: 100% !important;
-  height: auto !important;
-  width: auto !important;
-  object-fit: contain !important;
-  display: block;
-}
-#paper table {
-  width: 100% !important;
-  max-width: 100% !important;
-  border-collapse: collapse;
-  table-layout: auto !important;
-}
-#paper td, #paper th {
-  max-width: 100% !important;
-  word-break: break-word !important;
-  overflow-wrap: break-word !important;
-  overflow: hidden !important;
-}
-</style>
 </body>
 </html>`;
 }
@@ -388,6 +393,11 @@ export async function loadRemoteImages(html: string): Promise<string> {
   doc
     .querySelectorAll("iframe, frame, object, embed")
     .forEach((el) => el.remove());
+
+  // CRITICAL FIX: Inject nonce into all email <style> tags after loading remote images
+  doc.querySelectorAll("style").forEach((el) => {
+    el.setAttribute("nonce", "littmaily-internal");
+  });
 
   return doc.head.innerHTML + doc.body.innerHTML;
 }
