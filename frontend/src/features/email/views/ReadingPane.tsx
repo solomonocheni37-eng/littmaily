@@ -1,5 +1,4 @@
-// FILE: ./frontend/src/features/email/views/ReadingPane.tsx
-import { Show, For, createEffect } from "solid-js";
+import { Show, For, createEffect, createSignal } from "solid-js";
 import { useAppContext } from "@/core/store/AppStore";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
@@ -194,7 +193,6 @@ const ReadingPane = () => {
               >
                 <Trash2 size={18} />
               </button>
-
               <div class="flex items-center gap-1 border-l border-surface-200 dark:border-surface-800 pl-2 ml-2">
                 <button
                   onClick={() => setZoom((z) => Math.max(50, z - 10))}
@@ -221,7 +219,6 @@ const ReadingPane = () => {
                   <Maximize2 size={14} />
                 </button>
               </div>
-
               <div class="flex items-center border-l border-surface-200 dark:border-surface-800 pl-2 ml-2">
                 <button
                   onClick={() => setPanMode((p) => !p)}
@@ -326,30 +323,51 @@ const ReadingPane = () => {
                   </h3>
                   <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <For each={emailBody()!.attachments}>
-                      {(att) => (
-                        <button
-                          onClick={() =>
-                            downloadAttachment(
-                              att.blob_hash,
-                              att.filename || "attachment",
-                              att.mime_type
-                            )
+                      {(att) => {
+                        const [isDownloading, setIsDownloading] = createSignal(false);
+                        const [localHash, setLocalHash] = createSignal(att.blob_hash);
+
+                        const handleLazyDownload = async () => {
+                          if (localHash()) {
+                            await downloadAttachment(localHash()!, att.filename || "attachment", att.mime_type);
+                            return;
                           }
-                          class="flex items-center gap-3 p-3 rounded-lg border border-surface-200 dark:border-surface-700 hover:bg-surface-100 dark:hover:bg-surface-800 text-left transition-colors"
-                        >
-                          <div class="w-10 h-10 rounded bg-brand-500/10 flex items-center justify-center text-brand-500">
-                            <Download size={20} />
-                          </div>
-                          <div class="min-w-0 flex-1">
-                            <div class="text-sm font-medium truncate text-surface-800 dark:text-surface-200">
-                              {att.filename || "Unknown"}
+                          setIsDownloading(true);
+                          try {
+                            const hash = await EmailApi.fetchAttachment(
+                              state.selectedEmail!.account_id,
+                              state.selectedEmail!.mailbox_name,
+                              state.selectedEmail!.uid,
+                              att.section_id
+                            );
+                            setLocalHash(hash);
+                            await downloadAttachment(hash, att.filename || "attachment", att.mime_type);
+                          } catch (e) {
+                            toast("Failed to download attachment");
+                          } finally {
+                            setIsDownloading(false);
+                          }
+                        };
+
+                        return (
+                          <button
+                            onClick={handleLazyDownload}
+                            class="flex items-center gap-3 p-3 rounded-lg border border-surface-200 dark:border-surface-700 hover:bg-surface-100 dark:hover:bg-surface-800 text-left transition-colors"
+                          >
+                            <div class="w-10 h-10 rounded bg-brand-500/10 flex items-center justify-center text-brand-500">
+                              {isDownloading() ? <Loader2 size={20} class="animate-spin" /> : <Download size={20} />}
                             </div>
-                            <div class="text-xs text-surface-500">
-                              {((att.size ?? 0) / 1024).toFixed(1)} KB
+                            <div class="min-w-0 flex-1">
+                              <div class="text-sm font-medium truncate text-surface-800 dark:text-surface-200">
+                                {att.filename || "Unknown"}
+                              </div>
+                              <div class="text-xs text-surface-500">
+                                {localHash() ? "Click to save" : `Click to download (${((att.size ?? 0) / 1024).toFixed(1)} KB)`}
+                              </div>
                             </div>
-                          </div>
-                        </button>
-                      )}
+                          </button>
+                        );
+                      }}
                     </For>
                   </div>
                 </div>

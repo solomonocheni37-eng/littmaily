@@ -58,6 +58,11 @@ pub async fn get_thread_messages(
 }
 
 /// Fetches the full raw MIME body from the IMAP server, parses it, and caches it locally.
+///
+/// NOTE: async-imap 0.9's `Fetch` struct does not expose `BODY[<section>]` literals.
+/// It only populates `fetch.body()` for `BODY[]` or `RFC822`.
+/// Therefore, true IMAP partial fetching is impossible without forking the library.
+/// We fetch the full message but still benefit from JSON caching and the new attachment UI.
 #[tauri::command]
 #[specta::specta]
 pub async fn fetch_email_body(
@@ -80,43 +85,47 @@ pub async fn fetch_email_body(
     let account = acc_repo.get_by_id(&account_id).await?.ok_or_else(|| AppError::NotFound("Account".into()))?;
     let mut session = get_imap_session(&account).await?;
 
+    // Fetch full message since async-imap 0.9 doesn't support BODY[<section>] extraction
     let raw_mime = email_core::fetch_full_message(&mut session, &mailbox_name, uid)
         .await
         .map_err(|e| AppError::Network(e.to_string()))?;
+
     let parsed = email_core::mime_parser::parse_mime(&raw_mime)?;
 
-    // Cache the raw MIME in the content-addressed blob store for instant offline retrieval later
-    let mime_hash = blob_store.save(&raw_mime).await?;
-    let _ = msg_repo.update_blob_hash(&account_id, &mailbox_name, uid as i32, &mime_hash).await;
-
     let mut ipc_attachments = Vec::new();
-    for att in &parsed.attachments {
-        let att_hash = blob_store.save(&att.content).await?;
+    for (i, att) in parsed.attachments.iter().enumerate() {
+        let att_hash: String = blob_store.save(&att.content).await?;
         ipc_attachments.push(IpcAttachment {
             filename: att.filename.clone(),
             mime_type: att.mime_type.clone(),
             size: att.size,
-            blob_hash: att_hash,
+            section_id: format!("{}", i + 1), // Fallback section ID
+            blob_hash: Some(att_hash),
         });
     }
 
-    // Sanitize HTML at the IPC boundary. The core parser intentionally returns raw HTML
-    // to remain pure and fast; XSS prevention and privacy rewriting happen here.
     let safe_html = parsed.html_body.map(|h| {
         let sanitized = sanitize_html(&h);
         replace_cid_with_data_uri(&sanitized, &parsed.attachments)
     });
 
-    Ok(IpcParsedEmail {
+    let parsed_email = IpcParsedEmail {
         subject: parsed.subject,
         from: parsed.from,
         text_body: parsed.text_body,
         html_body: safe_html,
         attachments: ipc_attachments,
-    })
+    };
+
+    // Cache the PARSED JSON (Blazing fast offline loading)
+    let json_bytes = serde_json::to_vec(&parsed_email).unwrap_or_default();
+    let cache_hash: String = blob_store.save(&json_bytes).await?;
+    let _ = msg_repo.update_blob_hash(&account_id, &mailbox_name, uid as i32, &cache_hash).await;
+
+    Ok(parsed_email)
 }
 
-/// Attempts to load the email body from the local encrypted blob cache before hitting the network.
+/// Attempts to load the email body from the local encrypted JSON cache before hitting the network.
 #[tauri::command]
 #[specta::specta]
 pub async fn get_cached_email_body(
@@ -134,29 +143,11 @@ pub async fn get_cached_email_body(
             return Err(AppError::BadRequest("This email is larger than 50MB.".into()));
         }
         if let Some(hash) = m.blob_hash {
-            let raw_mime = blob_store.load(&hash).await?;
-            let parsed = email_core::mime_parser::parse_mime(&raw_mime)?;
-            let mut ipc_attachments = Vec::new();
-            for att in &parsed.attachments {
-                let att_hash = blob_store.save(&att.content).await?;
-                ipc_attachments.push(IpcAttachment {
-                    filename: att.filename.clone(),
-                    mime_type: att.mime_type.clone(),
-                    size: att.size,
-                    blob_hash: att_hash,
-                });
+            // FIX: Explicit type annotation prevents async compiler `Sized` inference errors
+            let json_bytes: Vec<u8> = blob_store.load(&hash).await?;
+            if let Ok(parsed) = serde_json::from_slice::<IpcParsedEmail>(&json_bytes) {
+                return Ok(Some(parsed));
             }
-            let safe_html = parsed.html_body.map(|h| {
-                let sanitized = sanitize_html(&h);
-                replace_cid_with_data_uri(&sanitized, &parsed.attachments)
-            });
-            return Ok(Some(IpcParsedEmail {
-                subject: parsed.subject,
-                from: parsed.from,
-                text_body: parsed.text_body,
-                html_body: safe_html,
-                attachments: ipc_attachments,
-            }));
         }
     }
     Ok(None)
@@ -492,4 +483,27 @@ pub async fn backfill_older_emails(state: State<'_, AppState>, account_id: Strin
     if let Some(current_tx) = tx.take() { let _ = current_tx.commit().await; }
 
     msg_repo.list_threads_cursor(&account_id, &mailbox_name, None, limit as i64).await.map_err(Into::into)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn fetch_email_attachment(
+    state: State<'_, AppState>,
+    account_id: String,
+    mailbox_name: String,
+    uid: u32,
+    section_id: String,
+) -> Result<String, AppError> {
+    let pool = state.pool.get().ok_or_else(|| AppError::System("DB not ready".into()))?;
+    let blob_store = state.blob_store.get().ok_or_else(|| AppError::System("Blob store not ready".into()))?;
+    let acc_repo = AccountRepository::new(pool);
+    let account = acc_repo.get_by_id(&account_id).await?.ok_or_else(|| AppError::NotFound("Account".into()))?;
+
+    let mut session = get_imap_session(&account).await?;
+    let bytes = email_core::fetch_attachment_part(&mut session, &mailbox_name, uid, &section_id)
+        .await
+        .map_err(|e| AppError::Network(e.to_string()))?;
+
+    let hash = blob_store.save(&bytes).await?;
+    Ok(hash)
 }

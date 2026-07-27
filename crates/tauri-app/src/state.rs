@@ -28,18 +28,17 @@ pub struct AppState {
 // IPC Payloads & Response Structs
 // ==========================================
 
-#[derive(Serialize, Clone, Type)]
+#[derive(Serialize, Deserialize, Clone, Type)]
 pub struct IpcAttachment {
     pub filename: Option<String>,
     pub mime_type: String,
-    // Cast to i32 for TypeScript interop. JS numbers lose precision above 2^53,
-    // but file sizes will never exceed this limit in practice.
     #[specta(type = i32)]
     pub size: usize,
-    pub blob_hash: String,
+    pub section_id: String, 
+    pub blob_hash: Option<String>, 
 }
 
-#[derive(Serialize, Clone, Type)]
+#[derive(Serialize, Deserialize, Clone, Type)]
 pub struct IpcParsedEmail {
     pub subject: Option<String>,
     pub from: String,

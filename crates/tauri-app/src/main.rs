@@ -321,6 +321,7 @@ fn main() {
             commands::update_sync_window,
             commands::backfill_older_emails,
             commands::save_attachment_dialog,
+            commands::fetch_email_attachment,
             commands::update_badge_count,
         ])
         .run(tauri::generate_context!())
@@ -371,6 +372,7 @@ mod specta_export {
             commands::update_sync_window,
             commands::backfill_older_emails,
             commands::save_attachment_dialog,
+            commands::fetch_email_attachment,
             commands::update_badge_count,
         ]);
         let export_path = "../../frontend/src/core/types/generated.ts";

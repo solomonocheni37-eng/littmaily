@@ -702,6 +702,115 @@ pub async fn supports_threading(
     Ok(false)
 }
 
+// ==========================================
+// Partial Fetch & Lazy Loading Helpers
+// ==========================================
+#[derive(Debug, Clone)]
+pub struct PartInfo {
+    pub section: String,
+    pub mime_type: String,
+    pub filename: Option<String>,
+    pub size: usize,
+    pub content_id: Option<String>,
+    pub is_inline: bool,
+}
+
+/// Recursively traverses the IMAP BODYSTRUCTURE to extract section IDs (e.g., "1", "2.1")
+pub fn traverse_bodystructure(bs: &BodyStructure, section: &str, parts: &mut Vec<PartInfo>) {
+    match bs {
+        BodyStructure::Multipart { bodies, .. } => {
+            for (i, body) in bodies.iter().enumerate() {
+                let next_section = if section.is_empty() {
+                    format!("{}", i + 1)
+                } else {
+                    format!("{}.{}", section, i + 1)
+                };
+                traverse_bodystructure(body, &next_section, parts);
+            }
+        }
+        BodyStructure::Basic { common, other, .. } | BodyStructure::Text { common, other, .. } => {
+            let mime_type = format!("{}/{}", common.ty.ty, common.ty.subtype);
+            let mut filename = None;
+            let mut is_inline = false;
+            
+            // In async-imap 0.9, Content-ID is located in the `other` struct
+            let content_id = other.id.as_ref().map(|s| s.to_string().trim_matches(|c| c == '<' || c == '>').to_string());
+            
+            if let Some(disp) = &common.disposition {
+                // The disposition type (e.g., "attachment", "inline") is stored in `ty`
+                if disp.ty.eq_ignore_ascii_case("attachment") {
+                    is_inline = false;
+                } else if disp.ty.eq_ignore_ascii_case("inline") {
+                    is_inline = true;
+                }
+                if let Some(params) = &disp.params {
+                    for (k, v) in params {
+                        if k.eq_ignore_ascii_case("filename") {
+                            filename = Some(v.to_string().trim_matches('"').to_string());
+                        }
+                    }
+                }
+            }
+            
+            // Fallback to Content-Type name parameter if filename wasn't in disposition
+            if filename.is_none() {
+                if let Some(params) = &common.ty.params {
+                    for (k, v) in params {
+                        if k.eq_ignore_ascii_case("name") {
+                            filename = Some(v.to_string().trim_matches('"').to_string());
+                        }
+                    }
+                }
+            }
+            
+            parts.push(PartInfo {
+                section: section.to_string(),
+                mime_type,
+                filename,
+                size: other.octets as usize, // FIX: `octets` is the correct field name for byte size in async-imap 0.9
+                content_id,
+                is_inline,
+            });
+        }
+        BodyStructure::Message { body, .. } => {
+            let mime_type = "message/rfc822".to_string();
+            parts.push(PartInfo {
+                section: section.to_string(),
+                mime_type,
+                filename: Some("message.eml".to_string()),
+                size: 0,
+                content_id: None,
+                is_inline: false,
+            });
+            let next_section = if section.is_empty() { "1".to_string() } else { format!("{}.1", section) };
+            traverse_bodystructure(body, &next_section, parts);
+        }
+    }
+}
+
+/// Fetches a specific attachment or body part by its IMAP section ID
+pub async fn fetch_attachment_part(
+    session: &mut async_imap::Session<ImapStream>,
+    mailbox: &str,
+    uid: u32,
+    section_id: &str,
+) -> ImapResult<Vec<u8>> {
+    session.select(mailbox).await?;
+    let query = format!("(BODY.PEEK[{}])", section_id);
+    let mut stream = session.uid_fetch(uid.to_string(), query).await?;
+    
+    if let Some(fetch_result) = stream.next().await {
+        let fetch = fetch_result?;
+        if let Some(body) = fetch.body() {
+            return Ok(body.to_vec());
+        }
+    }
+    Err(async_imap::error::Error::Io(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "Attachment part not found",
+    )))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

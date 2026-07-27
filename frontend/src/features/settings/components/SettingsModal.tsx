@@ -1,16 +1,19 @@
+// FILE: ./frontend/src/features/settings/components/SettingsModal.tsx
 import { Show, For, createSignal } from "solid-js";
 import { Portal } from "solid-js/web";
 import { invoke } from "@tauri-apps/api/core";
 import { AccountsApi } from "@/core/ipc";
 import { useAppContext } from "@/core/store/AppStore";
-import { X, Trash2, Loader2, FolderOpen, Database } from "lucide-solid";
+import { X, Trash2, Loader2, FolderOpen, Database, Info } from "lucide-solid";
 import { toast } from "@/core/ui/toast";
 import { confirm } from "@tauri-apps/plugin-dialog";
+import AboutModal from "./AboutModal";
 
 export default function SettingsModal() {
   const { state, setShowSettings, setAccounts, selectAccount } =
     useAppContext();
   const [loadingId, setLoadingId] = createSignal<string | null>(null);
+  const [showAbout, setShowAbout] = createSignal(false);
 
   const handleDelete = async (id: string, email: string) => {
     const isConfirmed = await confirm(
@@ -18,7 +21,6 @@ export default function SettingsModal() {
       { title: "Confirm Deletion", okLabel: "Delete", cancelLabel: "Cancel" }
     );
     if (!isConfirmed) return;
-
     setLoadingId(id);
     try {
       await AccountsApi.delete(id);
@@ -146,11 +148,29 @@ export default function SettingsModal() {
                 </div>
               </div>
 
-              <div class="pt-6 border-t border-surface-200 dark:border-surface-800">
+              <div class="pt-6 border-t border-surface-200 dark:border-surface-800 space-y-3">
                 <h3 class="text-sm font-semibold text-surface-700 dark:text-surface-300 uppercase tracking-wider mb-3">
                   Support & Debugging
                 </h3>
-                <div class="p-4 bg-surface-50 dark:bg-surface-800/50 rounded-lg border border-surface-200 dark:border-surface-700/50 flex items-center justify-between">
+
+                <button
+                  onClick={() => setShowAbout(true)}
+                  class="w-full flex items-center justify-between p-3 bg-surface-50 dark:bg-surface-800/50 rounded-lg border border-surface-200 dark:border-surface-700/50 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+                >
+                  <div class="flex items-center gap-3">
+                    <Info size={16} class="text-brand-500" />
+                    <div class="text-left">
+                      <div class="text-sm font-medium text-surface-900 dark:text-surface-200">
+                        About & Legal
+                      </div>
+                      <div class="text-xs text-surface-500 dark:text-surface-400">
+                        Changelog, Privacy, and Licenses
+                      </div>
+                    </div>
+                  </div>
+                </button>
+
+                <div class="p-3 bg-surface-50 dark:bg-surface-800/50 rounded-lg border border-surface-200 dark:border-surface-700/50 flex items-center justify-between">
                   <div class="min-w-0 mr-4">
                     <div class="text-sm font-medium text-surface-900 dark:text-surface-200">
                       Application Logs
@@ -170,6 +190,9 @@ export default function SettingsModal() {
             </div>
           </div>
         </div>
+
+        {/* Render the About Modal */}
+        <AboutModal show={showAbout()} onClose={() => setShowAbout(false)} />
       </Portal>
     </Show>
   );

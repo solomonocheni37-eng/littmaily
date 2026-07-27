@@ -5913,6 +5913,7 @@ dependencies = [
  "hex",
  "keyring",
  "lol_html",
+ "mail-parser",
  "open",
  "regex",
  "reqwest 0.12.28",

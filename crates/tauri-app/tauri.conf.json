@@ -1,6 +1,6 @@
 {
   "productName": "Littmaily",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "identifier": "com.littmaily.desktop",
   "build": {
     "beforeDevCommand": "npm run frontend:dev",

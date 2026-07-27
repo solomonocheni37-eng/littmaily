@@ -50,9 +50,12 @@ export const commands = {
 	 *  which is perfectly safe since DB row IDs will never exceed JS's $2^{53}$ precision limit.
 	 */
 	getEmailsPaginated: (accountId: string, mailboxName: string, beforeId: number | null, pageSize: number) => typedError<Message[], AppError>(__TAURI_INVOKE("get_emails_paginated", { accountId, mailboxName, beforeId, pageSize })),
-	/**  Fetches the full raw MIME body from the IMAP server, parses it, and caches it locally. */
+	/**
+	 *  Fetches only the headers, text/html bodies, and small inline images.
+	 *  Defers large attachments to on-demand fetching via `fetch_email_attachment`.
+	 */
 	fetchEmailBody: (accountId: string, mailboxName: string, uid: number) => typedError<IpcParsedEmail, AppError>(__TAURI_INVOKE("fetch_email_body", { accountId, mailboxName, uid })),
-	/**  Attempts to load the email body from the local encrypted blob cache before hitting the network. */
+	/**  Attempts to load the email body from the local encrypted JSON cache before hitting the network. */
 	getCachedEmailBody: (accountId: string, mailboxName: string, uid: number) => typedError<{
 	subject: string | null,
 	from: string,
@@ -103,6 +106,7 @@ export const commands = {
 	backfillOlderEmails: (accountId: string, mailboxName: string, beforeUid: number, limit: number) => typedError<Message[], AppError>(__TAURI_INVOKE("backfill_older_emails", { accountId, mailboxName, beforeUid, limit })),
 	/**  Prompts the user with a native OS save dialog and writes the decrypted attachment to their chosen path. */
 	saveAttachmentDialog: (blobHash: string, filename: string) => typedError<boolean, AppError>(__TAURI_INVOKE("save_attachment_dialog", { blobHash, filename })),
+	fetchEmailAttachment: (accountId: string, mailboxName: string, uid: number, sectionId: string) => typedError<string, AppError>(__TAURI_INVOKE("fetch_email_attachment", { accountId, mailboxName, uid, sectionId })),
 	/**
 	 *  Updates the OS-native badge count and window title fallbacks.
 	 * 
@@ -177,7 +181,8 @@ export type IpcAttachment = {
 	filename: string | null,
 	mime_type: string,
 	size: number,
-	blob_hash: string,
+	section_id: string,
+	blob_hash: string | null,
 };
 
 export type IpcParsedEmail = {

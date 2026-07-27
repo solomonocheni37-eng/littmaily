@@ -1,3 +1,4 @@
+// FILE: ./frontend/src/core/ipc/email.ts
 import { commands } from "../types/generated";
 import { unwrap } from "./client";
 import { appEvents } from "@/core/events/eventBus";
@@ -45,7 +46,6 @@ export const EmailApi = {
     ),
   getThreadMessages: (threadId: string) =>
     unwrap(commands.getThreadMessages(threadId)),
-
   backfillOlderEmails: async (
     accountId: string,
     mailboxName: string,
@@ -61,19 +61,15 @@ export const EmailApi = {
     }
     return res;
   },
-
   fetchViewportSnippets: (
     accountId: string,
     mailboxName: string,
     uids: number[]
   ) => unwrap(commands.fetchViewportSnippets(accountId, mailboxName, uids)),
-
   fetchBody: (accountId: string, mailboxName: string, uid: number) =>
     unwrap(commands.fetchEmailBody(accountId, mailboxName, uid)),
-
   getCachedBody: (accountId: string, mailboxName: string, uid: number) =>
     unwrap(commands.getCachedEmailBody(accountId, mailboxName, uid)),
-
   updateState: async (
     accountId: string,
     mailboxName: string,
@@ -95,7 +91,6 @@ export const EmailApi = {
     try { await commands.updateBadgeCount(); } catch (e) {}
     return res;
   },
-
   queue: (payload: QueueEmailPayload) =>
     unwrap(commands.queueEmail(payload as any)),
   cancelScheduled: (id: number) => unwrap(commands.cancelScheduledEmail(id)),
@@ -103,12 +98,10 @@ export const EmailApi = {
     unwrap(commands.saveDraft(payload as any)),
   getDrafts: (accountId: string) => unwrap(commands.getDrafts(accountId)),
   deleteDraft: (draftId: number) => unwrap(commands.deleteDraft(draftId)),
-
   getAttachmentPath: (blobHash: string) =>
     unwrap(commands.getAttachmentPath(blobHash)),
   saveAttachmentDialog: (blobHash: string, filename: string) =>
     unwrap(commands.saveAttachmentDialog(blobHash, filename)),
-
   checkForNew: async (accountId: string, mailboxName: string) => {
     const res = await unwrap(commands.checkForNewEmails(accountId, mailboxName));
     if (res > 0) {
@@ -117,9 +110,7 @@ export const EmailApi = {
     }
     return res;
   },
-
   proxyRemoteImage: (url: string) => unwrap(commands.proxyRemoteImage(url)),
-
   createFolder: async (accountId: string, name: string) => {
     const res = await unwrap(commands.createFolder(accountId, name));
     appEvents.emit("mailboxes:refresh");
@@ -134,5 +125,16 @@ export const EmailApi = {
     const res = await unwrap(commands.renameFolder(accountId, oldName, newName));
     appEvents.emit("mailboxes:refresh");
     return res;
+  },
+  // On-demand attachment fetching for Lazy Loading
+  fetchAttachment: async (
+    accountId: string,
+    mailboxName: string,
+    uid: number,
+    sectionId: string
+  ) => {
+    return unwrap(
+      commands.fetchEmailAttachment(accountId, mailboxName, uid, sectionId)
+    );
   },
 };
