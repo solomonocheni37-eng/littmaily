@@ -202,7 +202,7 @@ impl<S: TokenStore + 'static> SyncWorker<S> {
             .await
             .map_err(|e| e.to_string())?;
 
-        let mut new_headers = Vec::new();
+        let mut new_headers = Vec::with_capacity(64);
         let mut highest_uid_seen = self.last_uid_next.saturating_sub(1);
 
         while let Some(fetch_result) = stream.next().await {
@@ -239,7 +239,7 @@ impl<S: TokenStore + 'static> SyncWorker<S> {
             .await
             .map_err(|e| e.to_string())?;
 
-        let mut updates = Vec::new();
+        let mut updates = Vec::with_capacity(256);
         while let Some(fetch_result) = stream.next().await {
             let fetch = fetch_result.map_err(|e| e.to_string())?;
             if let Some(uid) = fetch.uid {

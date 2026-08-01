@@ -1,3 +1,4 @@
+// FILE: ./frontend/src/features/layout/components/Sidebar.tsx
 import {
   For,
   Show,
@@ -44,12 +45,9 @@ const Sidebar = () => {
     setShowSettings,
     setCurrentView,
   } = useAppContext();
-
   const [isOnline, setIsOnline] = createSignal(navigator.onLine);
-
   const handleOnline = () => setIsOnline(true);
   const handleOffline = () => setIsOnline(false);
-
   const refreshMailboxes = async () => {
     if (state.selectedAccountId) {
       try {
@@ -60,14 +58,11 @@ const Sidebar = () => {
       }
     }
   };
-
   let cleanupMailboxes: (() => void) | undefined;
-
   onMount(async () => {
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
     cleanupMailboxes = appEvents.on("mailboxes:refresh", refreshMailboxes);
-
     try {
       const accs = await AccountsApi.list();
       setAccounts(accs);
@@ -77,13 +72,11 @@ const Sidebar = () => {
       if (import.meta.env.DEV) console.error("Failed to fetch accounts:", e);
     }
   });
-
   onCleanup(() => {
     window.removeEventListener("online", handleOnline);
     window.removeEventListener("offline", handleOffline);
     cleanupMailboxes?.();
   });
-
   createEffect(() => {
     if (state.selectedAccountId)
       EmailApi.getMailboxes(state.selectedAccountId)
@@ -107,7 +100,6 @@ const Sidebar = () => {
           if (import.meta.env.DEV) console.error(e);
         });
   });
-
   const handleCreateFolder = async () => {
     const name = prompt("Enter new folder name:");
     if (name && state.selectedAccountId) {
@@ -120,7 +112,6 @@ const Sidebar = () => {
       }
     }
   };
-
   const getIcon = (name: string) => {
     const n = name.toLowerCase();
     if (n.includes("inbox")) return <Inbox size={16} />;
@@ -136,7 +127,6 @@ const Sidebar = () => {
       return <Star size={16} />;
     return <Mail size={16} />;
   };
-
   return (
     <div class="h-full flex flex-col p-4 gap-6 overflow-y-auto glass-panel">
       <Show when={!isOnline()}>
@@ -144,7 +134,6 @@ const Sidebar = () => {
           <WifiOff size={12} /> Offline Mode
         </div>
       </Show>
-
       <div class="flex gap-2 mb-2">
         <button
           onClick={() => setCurrentView("mail")}
@@ -177,7 +166,6 @@ const Sidebar = () => {
           <Users size={14} />
         </button>
       </div>
-
       <div class="space-y-2">
         <button
           onClick={() => setShowCompose(true)}
@@ -195,7 +183,6 @@ const Sidebar = () => {
           </span>
         </button>
       </div>
-
       <div>
         <div class="flex justify-between items-center mb-3 px-1">
           <h3 class="text-[11px] font-bold text-surface-400 dark:text-surface-500 uppercase tracking-widest">
@@ -233,7 +220,6 @@ const Sidebar = () => {
           </div>
         </Show>
       </div>
-
       {/* Grouping Logic */}
       {(() => {
         const inbox = state.mailboxes.find(
@@ -258,11 +244,13 @@ const Sidebar = () => {
             m.attributes.toLowerCase().includes("\\trash")
         );
 
-        // Virtual folders that don't exist on the IMAP server but are handled via specific SQL queries in the backend.
+        // CRITICAL FIX: Separated internal ID from display_name.
+        // The backend SQL engine strictly requires the "__STARRED__" string to trigger
+        // the virtual folder logic. Passing "Starred" caused it to query a non-existent literal folder.
         const smartFolders = [
-          { id: "__STARRED__", name: "Starred", icon: <Star size={16} /> },
-          { id: "__ARCHIVE__", name: "Archive", icon: <Archive size={16} /> },
-          { id: "__SPAM__", name: "Spam", icon: <ShieldAlert size={16} /> },
+          { id: "__STARRED__", name: "__STARRED__", display_name: "Starred", icon: <Star size={16} /> },
+          { id: "__ARCHIVE__", name: "__ARCHIVE__", display_name: "Archive", icon: <Archive size={16} /> },
+          { id: "__SPAM__", name: "__SPAM__", display_name: "Spam", icon: <ShieldAlert size={16} /> },
         ];
 
         const customFolders = state.mailboxes.filter((m: Mailbox) => {
@@ -287,7 +275,6 @@ const Sidebar = () => {
             return false;
           return true;
         });
-
         const renderFolder = (mb: any) => (
           <button
             onClick={() => selectMailbox(mb.name || mb.id)}
@@ -310,7 +297,6 @@ const Sidebar = () => {
             )}
           </button>
         );
-
         return (
           <div class="flex-1 overflow-y-auto space-y-4">
             {/* 1. Inbox */}
@@ -323,7 +309,6 @@ const Sidebar = () => {
                 })}
               </div>
             )}
-
             {/* 2. Smart Folders */}
             <div class="space-y-0.5">
               <h3 class="text-[11px] font-bold text-surface-400 dark:text-surface-500 uppercase tracking-widest px-3 mb-1">
@@ -331,7 +316,6 @@ const Sidebar = () => {
               </h3>
               <For each={smartFolders}>{renderFolder}</For>
             </div>
-
             {/* 3. Standard Folders */}
             <div class="space-y-0.5">
               <h3 class="text-[11px] font-bold text-surface-400 dark:text-surface-500 uppercase tracking-widest px-3 mb-1">
@@ -356,7 +340,6 @@ const Sidebar = () => {
                   icon: <Trash2 size={16} />,
                 })}
             </div>
-
             {/* 4. Custom Folders */}
             {customFolders.length > 0 && (
               <div class="space-y-0.5">
@@ -378,7 +361,6 @@ const Sidebar = () => {
           </div>
         );
       })()}
-
       <div class="mt-auto pt-4 border-t border-surface-200 dark:border-surface-800 space-y-1">
         <ThemeToggle />
         <button

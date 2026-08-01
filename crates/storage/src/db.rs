@@ -161,6 +161,7 @@ pub async fn init_test_pool() -> Result<(SqlitePool, tempfile::TempDir), sqlx::E
     let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
     let db_path = temp_dir.path().join("test.db");
     let url = format!("sqlite://{}?mode=rwc", db_path.display());
+
     let test_key_hex = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
 
     // The key is passed as a hex string wrapped in x'...' syntax, which is the standard
@@ -169,10 +170,11 @@ pub async fn init_test_pool() -> Result<(SqlitePool, tempfile::TempDir), sqlx::E
         .pragma("key", format!("\"x'{}'\"", test_key_hex))
         .pragma("journal_mode", "WAL")
         .pragma("synchronous", "NORMAL")
-        .pragma("cache_size", "-20000")
+        .pragma("cache_size", "-4000")
         .pragma("temp_store", "MEMORY")
         .pragma("foreign_keys", "ON")
-        .pragma("busy_timeout", "5000");
+        .pragma("busy_timeout", "5000")
+        .pragma("mmap_size", "67108864");
 
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
@@ -189,6 +191,7 @@ pub async fn init_test_pool() -> Result<(SqlitePool, tempfile::TempDir), sqlx::E
             .execute(&pool)
             .await?;
     }
+
     Ok((pool, temp_dir))
 }
 
@@ -199,30 +202,41 @@ pub async fn init_file_pool(path: &Path, db_key_hex: &str) -> Result<SqlitePool,
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).expect("Failed to create DB directory");
     }
+
     let url = format!("sqlite://{}?mode=rwc", path.display());
+
     tracing::info!("[DB INIT] 2. Building connection options...");
     let options = SqliteConnectOptions::from_str(&url)?
         .pragma("key", format!("\"x'{}'\"", db_key_hex))
         .pragma("journal_mode", "WAL")
         .pragma("synchronous", "NORMAL")
-        .pragma("cache_size", "-20000")
+        // 4 MB per connection (was 20 MB). With 2 connections that's 8 MB total
+        // instead of the previous 100 MB. Sufficient for a single-user desktop app.
+        .pragma("cache_size", "-4000")
         .pragma("temp_store", "MEMORY")
         .pragma("foreign_keys", "ON")
-        .pragma("busy_timeout", "5000");
+        .pragma("busy_timeout", "5000")
+        // Let the OS page cache manage cold pages (64 MB). Unlike SQLite's private
+        // cache, the OS can reclaim these pages under memory pressure.
+        .pragma("mmap_size", "67108864");
 
     tracing::info!("[DB INIT] 3. Connecting pool (SQLCipher decryption happens here)...");
+    // 2 connections: one for UI reads, one for background worker writes.
+    // WAL mode allows concurrent read+write with just 2 connections.
     let pool = SqlitePoolOptions::new()
-        .max_connections(5)
+        .max_connections(2)
         .connect_with(options)
         .await?;
 
     tracing::info!("[DB INIT] 4. Pool connected. Executing SCHEMA_SQL...");
     sqlx::query(SCHEMA_SQL).execute(&pool).await?;
+
     tracing::info!("[DB INIT] 5. SCHEMA_SQL complete. Fetching user_version...");
     let mut current_version: i64 = sqlx::query_scalar("PRAGMA user_version;")
         .fetch_optional(&pool)
         .await?
         .unwrap_or(0);
+
     tracing::info!("[DB INIT] 6. Current user_version is {}", current_version);
 
     for migration in get_migrations() {
@@ -239,6 +253,7 @@ pub async fn init_file_pool(path: &Path, db_key_hex: &str) -> Result<SqlitePool,
             current_version = migration.version;
         }
     }
+
     tracing::info!("[DB INIT] 7. ALL MIGRATIONS COMPLETE. Pool is ready.");
     Ok(pool)
 }

@@ -573,21 +573,26 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                                         }
                                     }
 
+
                                     if !new_uids.is_empty() {
+                                        // Emit the event FIRST so the UI starts fetching immediately.
+                                        let _ = handle_clone.emit(
+                                            "sync:new-email",
+                                            SyncNotification {
+                                                account_id: acc_id.clone(),
+                                                mailbox: inbox_name_clone.clone(),
+                                                new_uids: new_uids.clone(),
+                                            },
+                                        );
+
+                                        // Show the notification AFTER. OS notifications often have a 1-2s delay,
+                                        // so by the time the user reads it, the UI will have already updated.
                                         send_new_email_notification(
                                             &handle_clone,
                                             new_uids.len(),
                                             first_sender.as_deref(),
                                         )
                                         .await;
-                                        let _ = handle_clone.emit(
-                                            "sync:new-email",
-                                            SyncNotification {
-                                                account_id: acc_id.clone(),
-                                                mailbox: inbox_name_clone.clone(),
-                                                new_uids,
-                                            },
-                                        );
                                     }
                                 }
                                 SyncEvent::StateSync(updates) => {

@@ -46,8 +46,13 @@ impl BlobStore {
     pub async fn load(&self, hash: &str) -> Result<Vec<u8>, std::io::Error> {
         let path = self.base_dir.join(hash);
         let encrypted = fs::read(path).await?;
-        decrypt_blob(&self.key, &encrypted)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        let result = decrypt_blob(&self.key, &encrypted)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e));
+        // Explicit drop: ensures the ciphertext buffer is freed before the caller
+        // receives the plaintext. NLL would handle this, but the explicit drop
+        // documents intent and guarantees no overlap for large attachments.
+        drop(encrypted);
+        result
     }
 
     pub fn path_for(&self, hash: &str) -> PathBuf {

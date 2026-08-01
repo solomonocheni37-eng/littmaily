@@ -194,7 +194,7 @@ pub async fn proxy_remote_image(url: String) -> Result<String, AppError> {
     let mime_type = if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) { "image/jpeg" }
     else if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) { "image/png" }
     else if bytes.starts_with(&[0x47, 0x49, 0x46, 0x38]) { "image/gif" }
-    else if bytes.starts_with(&[0x52, 0x49, 0x46, 0x46]) && bytes.len() > 11 && &bytes[8..12] == b"WEBP" { "image/webp" }
+    else if bytes.get(8..12) == Some(b"WEBP".as_slice()) && bytes.starts_with(&[0x52, 0x49, 0x46, 0x46]) { "image/webp" }
     else if bytes.starts_with(b"<?xml") || bytes.starts_with(b"<svg") || bytes.windows(4).any(|w| w == b"<svg") { "image/svg+xml" }
     else if content_type.contains("icon") || bytes.starts_with(&[0x00, 0x00, 0x01, 0x00]) { "image/x-icon" }
     else if content_type.starts_with("image/") { content_type.split(';').next().unwrap_or("image/png") }

@@ -13,10 +13,10 @@ Designed for users who demand absolute privacy and speed, Littmaily encrypts you
 - **Scheduled Sending:** 10-second undo-send delay managed by the Rust outbox worker.
 
 ### 🛡️ Hardcore Privacy & Security
-- **SSRF-Protected Image Proxy:** Remote images are fetched via a hardened Rust proxy that blocks IANA reserved ranges, enforces 5MB limits, and uses magic-byte sniffing to verify true MIME types.
+- **SSRF-Protected Image Proxy:** Remote images are fetched via a hardened Rust proxy that blocks IANA reserved ranges, enforces 5MB limits, and uses magic-byte sniffing to verify true MIME types. Failed images render as clickable retry placeholders instead of silently disappearing.
 - **AES-256-GCM Blob Store:** Content-addressed, deduplicated attachment storage with automatic garbage collection.
 - **SQLCipher Encryption:** The entire local database is encrypted at rest, with keys securely stored in the OS-native Keychain (`keyring`).
-- **HTML Sanitization:** Ammonia-powered HTML sanitization with CID-to-data-URI rewriting to neutralize tracking pixels and malicious payloads.
+- **HTML Sanitization:** Ammonia + lol_html sanitization pipeline with CID-to-data-URI rewriting, full `@import` rule stripping, and sandboxed iframe rendering (`allow-scripts` without `allow-same-origin`) to neutralize tracking pixels and malicious payloads.
 
 ### 📅 CalDAV & CardDAV
 - **Robust Sync Engines:** Full support for RFC 6578 (`sync-collection`) and RFC 6764 discovery chains.
@@ -24,7 +24,8 @@ Designed for users who demand absolute privacy and speed, Littmaily encrypts you
 
 ### 🎨 Premium UI/UX
 - **Virtualized Rendering:** Blazing-fast email lists using `@tanstack/solid-virtual`.
-- **Native Gestures:** Swipe-to-delete, spring-physics zoom controls, and full keyboard navigation (j/k/enter).
+- **Compositor-Grade Scrolling:** CSS containment, compositor hints, and batched resize messaging keep the list and reading panes scrolling at full frame rate.
+- **Native Gestures:** Swipe-to-delete, spring-physics zoom controls with reliable reset, and full keyboard navigation (j/k/enter).
 - **Unified FTS5 Search:** Concurrent full-text search with snippet highlighting across emails, calendar events, and contacts simultaneously.
 - **Rich Text Editing:** Integrated Quill editor for composing beautiful HTML emails.
 

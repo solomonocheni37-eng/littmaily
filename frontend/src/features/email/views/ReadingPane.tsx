@@ -17,6 +17,7 @@ import {
   Maximize2,
   Hand,
   MousePointer2,
+  RefreshCw,
 } from "lucide-solid";
 import { toast } from "@/core/ui/toast";
 import { EmailApi } from "@/core/ipc";
@@ -31,12 +32,16 @@ const ReadingPane = () => {
     emailBody,
     refetch,
     imagesLoaded,
+    loadingImages,
+    failedImageCount,
     renderedHtml,
     iframeRef,
     srcdoc,
     triggerLoadRemoteImages,
+    retryFailedImages,
     zoom,
     setZoom,
+    resetZoom,
     panMode,
     setPanMode,
   } = useEmailViewer();
@@ -62,7 +67,6 @@ const ReadingPane = () => {
             filename.length - 15
           )}`
         : filename;
-
     if (isExecutable(filename)) {
       const isConfirmed = await confirm(
         `The file "${displayName}" is an executable or script.\nRunning untrusted files from emails is dangerous.\nAre you absolutely sure?`,
@@ -74,7 +78,6 @@ const ReadingPane = () => {
       );
       if (!isConfirmed) return;
     }
-
     try {
       const saved = await EmailApi.saveAttachmentDialog(blobHash, filename);
       if (saved) toast("Attachment saved successfully!");
@@ -212,7 +215,7 @@ const ReadingPane = () => {
                   <ZoomIn size={16} />
                 </button>
                 <button
-                  onClick={() => setZoom(100)}
+                  onClick={resetZoom}
                   class="p-1.5 hover:bg-surface-200 dark:hover:bg-surface-800 rounded text-surface-600 dark:text-surface-300 transition-colors ml-1"
                   title="Reset Zoom"
                 >
@@ -246,8 +249,17 @@ const ReadingPane = () => {
             {state.selectedEmail!.date}
           </div>
         </div>
-
-        <div ref={scrollContainerRef} class="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
+        {/* Scroll surface: compositor-friendly (no animated children, isolated paint) */}
+        <div
+          ref={scrollContainerRef}
+          class="flex-1 overflow-y-auto overflow-x-hidden"
+          style={{
+            "overscroll-behavior": "contain",
+            "will-change": "scroll-position",
+            "transform": "translateZ(0)",
+            "contain": "content",
+          }}
+        >
           <Show
             when={emailBody.state === "ready"}
             fallback={
@@ -291,13 +303,33 @@ const ReadingPane = () => {
                   </span>
                   <button
                     onClick={triggerLoadRemoteImages}
-                    class="text-sm font-semibold text-amber-600 dark:text-amber-400 hover:underline"
+                    disabled={loadingImages()}
+                    class="text-sm font-semibold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1.5 disabled:opacity-60 disabled:no-underline"
                   >
-                    Load Images
+                    <Show when={loadingImages()}>
+                      <Loader2 size={14} class="animate-spin" />
+                    </Show>
+                    {loadingImages() ? "Loading…" : "Load Images"}
                   </button>
                 </div>
               </Show>
-
+              <Show when={failedImageCount() > 0}>
+                <div class="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center justify-between shadow-sm">
+                  <span class="text-sm text-red-800 dark:text-red-200 flex items-center gap-2">
+                    <ShieldAlert size={16} />
+                    {failedImageCount()} image
+                    {failedImageCount() > 1 ? "s" : ""} failed to load. Click a
+                    broken image to retry it.
+                  </span>
+                  <button
+                    onClick={retryFailedImages}
+                    class="text-sm font-semibold text-red-600 dark:text-red-400 hover:underline flex items-center gap-1.5"
+                  >
+                    <RefreshCw size={14} />
+                    Retry all
+                  </button>
+                </div>
+              </Show>
               <Show
                 when={renderedHtml()}
                 fallback={
@@ -306,15 +338,18 @@ const ReadingPane = () => {
                   </pre>
                 }
               >
+                {/* No height transition / will-change:height — those forced a full
+                    reflow + re-rasterize on every resize. Height updates are instant
+                    and applied off the critical scroll path in the hook. */}
                 <iframe
                   ref={iframeRef}
                   sandbox="allow-scripts"
-                  class="w-full min-h-[400px] bg-transparent rounded-lg shadow-sm border border-surface-200 dark:border-surface-800 transition-[height] duration-300 ease-in-out"
+                  class="w-full min-h-[400px] bg-transparent rounded-lg shadow-sm border border-surface-200 dark:border-surface-800"
+                  style={{ "transform": "translateZ(0)" }}
                   srcdoc={srcdoc()}
                   title="Email Content"
                 />
               </Show>
-
               <Show when={emailBody()!.attachments.length > 0}>
                 <div class="mt-8 pt-6 border-t border-surface-200 dark:border-surface-800">
                   <h3 class="text-sm font-semibold mb-3 flex items-center gap-2 text-surface-700 dark:text-surface-300">
@@ -326,7 +361,6 @@ const ReadingPane = () => {
                       {(att) => {
                         const [isDownloading, setIsDownloading] = createSignal(false);
                         const [localHash, setLocalHash] = createSignal(att.blob_hash);
-
                         const handleLazyDownload = async () => {
                           if (localHash()) {
                             await downloadAttachment(localHash()!, att.filename || "attachment", att.mime_type);
@@ -348,7 +382,6 @@ const ReadingPane = () => {
                             setIsDownloading(false);
                           }
                         };
-
                         return (
                           <button
                             onClick={handleLazyDownload}

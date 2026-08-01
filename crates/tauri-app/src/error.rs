@@ -25,31 +25,35 @@ pub enum AppError {
 }
 
 impl From<sqlx::Error> for AppError {
+    #[cold]
     fn from(err: sqlx::Error) -> Self {
         AppError::Database(err.to_string())
     }
 }
 
 impl From<std::io::Error> for AppError {
+    #[cold]
     fn from(err: std::io::Error) -> Self {
         AppError::System(err.to_string())
     }
 }
 
 impl From<email_core::oauth::TokenError> for AppError {
+    #[cold]
     fn from(err: email_core::oauth::TokenError) -> Self {
         AppError::Auth(err.to_string())
     }
 }
 
 impl From<email_core::mime_parser::MimeError> for AppError {
+    #[cold]
     fn from(err: email_core::mime_parser::MimeError) -> Self {
         AppError::Internal(err.to_string())
     }
 }
 
-// Catch-all for reqwest and other network-related string errors
 impl From<reqwest::Error> for AppError {
+    #[cold]
     fn from(err: reqwest::Error) -> Self {
         AppError::Network(err.to_string())
     }

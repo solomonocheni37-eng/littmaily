@@ -31,46 +31,63 @@ use tokio_rustls::TlsConnector;
 /// Strips `<`, `>`, whitespace, and normalizes case/suffixes for robust threading.
 /// Real-world gateways (Gmail, Outlook) frequently mutate Message-IDs by changing
 /// case or appending routing suffixes like `@mail.gmail.com`.
+#[inline]
 pub fn clean_message_id(id: &str) -> String {
     let s = id.trim().trim_start_matches('<').trim_end_matches('>').trim();
     let mut lower = s.to_lowercase();
-
-    // Strip known noisy gateway suffixes if they appear after the original domain
+    // Strip known noisy gateway suffixes in-place (avoids re-allocation per suffix)
     let noisy_suffixes = ["@mail.gmail.com", "@prod.outlook.com", "@outlook.com"];
     for suffix in noisy_suffixes {
         if lower.ends_with(suffix) && lower.matches('@').count() > 1 {
-            lower = lower.trim_end_matches(suffix).to_string();
+            let new_len = lower.len() - suffix.len();
+            lower.truncate(new_len);
         }
     }
-    lower.trim_end_matches('.').to_string()
+    // Trim trailing dots in-place
+    let trimmed_len = lower.trim_end_matches('.').len();
+    lower.truncate(trimmed_len);
+    lower
 }
 
 /// Strips localized reply/forward prefixes (e.g., "Re:", "Aw:", "Sv:") to group threads by root subject.
+/// Uses `eq_ignore_ascii_case` on byte slices to avoid allocating a lowercased copy per iteration.
+#[inline]
 pub fn normalize_subject(subject: &str) -> String {
     let mut s = subject.trim().to_string();
-    let prefixes = ["re:", "fwd:", "fw:", "aw:", "sv:", "vs:", "ref:", "ods:"];
+    let prefixes: [&str; 8] = ["re:", "fwd:", "fw:", "aw:", "sv:", "vs:", "ref:", "ods:"];
     loop {
-        let lower = s.to_lowercase();
         let mut matched = false;
-        for p in prefixes {
-            if lower.starts_with(p) {
-                s = s[p.len()..].trim().to_string();
-                matched = true;
-                break;
+        for p in &prefixes {
+            // `get` returns None if the byte range splits a multi-byte char — safe for non-ASCII subjects
+            if let Some(head) = s.get(..p.len()) {
+                if head.eq_ignore_ascii_case(p) {
+                    // Drain prefix + leading whitespace in-place (zero allocation).
+                    // ws_len is a usize, so the immutable borrow of s ends before drain.
+                    let prefix_len = p.len();
+                    let ws_len: usize = s[prefix_len..]
+                        .chars()
+                        .take_while(|c| c.is_whitespace())
+                        .map(|c| c.len_utf8())
+                        .sum();
+                    s.drain(..(prefix_len + ws_len));
+                    matched = true;
+                    break;
+                }
             }
         }
-        if !matched { break; }
+        if !matched {
+            break;
+        }
     }
     s
 }
-
 /// Parses the raw `References` header bytes into a list of clean Message-IDs.
 /// Handles RFC 5322 header folding (continuation lines starting with whitespace).
 fn parse_references_header(raw: &[u8]) -> Vec<String> {
     let s = String::from_utf8_lossy(raw);
-    let mut refs = Vec::new();
+    let mut refs = Vec::with_capacity(16);
     let mut in_refs = false;
-    let mut current = String::new();
+    let mut current = String::with_capacity(128);
     let mut in_bracket = false;
 
     for line in s.lines() {
@@ -330,7 +347,8 @@ pub struct MessageHeader {
 /// Strips whitespace between adjacent encoded words as required by the RFC.
 pub fn decode_mime_header(raw: &[u8]) -> String {
     let s = String::from_utf8_lossy(raw);
-    let mut result = String::new();
+    // Decoded output can never exceed the encoded input length
+    let mut result = String::with_capacity(s.len());
     let mut chars = s.char_indices().peekable();
     let mut last_end = 0;
     let mut prev_was_encoded = false;
@@ -499,11 +517,11 @@ pub async fn fetch_headers(
     Ok(headers)
 }
 
-/// Extracts attachment filenames by recursively traversing the IMAP `BodyStructure` enum.
+/// Extracts attachment filenames by iteratively traversing the IMAP `BodyStructure` enum.
 /// Checks both `Content-Disposition: filename` and `Content-Type: name` parameters.
 pub fn extract_attachment_names(fetch: &async_imap::types::Fetch) -> Option<String> {
     let bs = fetch.bodystructure()?;
-    let names = get_filenames_recursive(bs);
+    let names = get_filenames_iterative(bs);
     if names.is_empty() {
         None
     } else {
@@ -511,33 +529,39 @@ pub fn extract_attachment_names(fetch: &async_imap::types::Fetch) -> Option<Stri
     }
 }
 
-fn get_filenames_recursive(bs: &BodyStructure) -> Vec<String> {
+/// Iterative traversal using an explicit stack — eliminates O(depth) intermediate
+/// Vec allocations that the recursive version created per nesting level.
+fn get_filenames_iterative(bs: &BodyStructure) -> Vec<String> {
     let mut names = Vec::new();
-    match bs {
-        BodyStructure::Multipart { bodies, .. } => {
-            for b in bodies {
-                names.extend(get_filenames_recursive(b));
+    let mut stack: Vec<&BodyStructure> = vec![bs];
+    while let Some(node) = stack.pop() {
+        match node {
+            BodyStructure::Multipart { bodies, .. } => {
+                // Push in reverse so children are processed in original order
+                for b in bodies.iter().rev() {
+                    stack.push(b);
+                }
             }
-        }
-        BodyStructure::Message { body, .. } => {
-            names.extend(get_filenames_recursive(body));
-        }
-        BodyStructure::Basic { common, .. } | BodyStructure::Text { common, .. } => {
-            if let Some(disp) = &common.disposition {
-                if let Some(params) = &disp.params {
-                    for (k, v) in params {
-                        if k.eq_ignore_ascii_case("filename") {
-                            names.push(v.to_string());
+            BodyStructure::Message { body, .. } => {
+                stack.push(body.as_ref());
+            }
+            BodyStructure::Basic { common, .. } | BodyStructure::Text { common, .. } => {
+                if let Some(disp) = &common.disposition {
+                    if let Some(params) = &disp.params {
+                        for (k, v) in params {
+                            if k.eq_ignore_ascii_case("filename") {
+                                names.push(v.to_string());
+                            }
                         }
                     }
                 }
-            }
-            if let Some(params) = &common.ty.params {
-                for (k, v) in params {
-                    if k.eq_ignore_ascii_case("name") {
-                        let name = v.to_string();
-                        if !names.contains(&name) {
-                            names.push(name);
+                if let Some(params) = &common.ty.params {
+                    for (k, v) in params {
+                        if k.eq_ignore_ascii_case("name") {
+                            let name = v.to_string();
+                            if !names.contains(&name) {
+                                names.push(name);
+                            }
                         }
                     }
                 }
@@ -547,24 +571,53 @@ fn get_filenames_recursive(bs: &BodyStructure) -> Vec<String> {
     names
 }
 
+/// Collapses runs of whitespace into single spaces and truncates to `max_len` chars.
+/// Single-pass: no intermediate Vec allocation, no second pass for `.take()`.
+#[inline]
+fn collapse_whitespace(text: &str, max_len: usize) -> String {
+    let mut result = String::with_capacity(max_len.min(text.len()));
+    let mut last_was_space = true; // true → skips leading whitespace
+    for c in text.chars() {
+        if result.len() >= max_len {
+            break;
+        }
+        if c.is_whitespace() {
+            if !last_was_space {
+                result.push(' ');
+                last_was_space = true;
+            }
+        } else {
+            result.push(c);
+            last_was_space = false;
+        }
+    }
+    // Trim a trailing space if the last char pushed was one
+    if result.ends_with(' ') {
+        result.pop();
+    }
+    result
+}
+
 /// Extracts a plain-text snippet from a partial body fetch for inbox previews.
 /// Falls back to stripping HTML tags if only an HTML body is available in the partial fetch.
 pub fn extract_snippet(fetch: &async_imap::types::Fetch) -> Option<String> {
     if let Some(body) = fetch.body() {
         if let Some(msg) = mail_parser::MessageParser::default().parse(body) {
             if let Some(text) = msg.body_text(0) {
-                let clean: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-                if !clean.is_empty() { return Some(clean.chars().take(SNIPPET_MAX_LENGTH).collect()); }
+                let clean = collapse_whitespace(&text, SNIPPET_MAX_LENGTH);
+                if !clean.is_empty() {
+                    return Some(clean);
+                }
             }
             if let Some(html) = msg.body_html(0) {
                 let text = html.replace('<', " <").replace('>', "> ");
-                let clean: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-                return Some(clean.chars().take(SNIPPET_MAX_LENGTH).collect());
+                let clean = collapse_whitespace(&text, SNIPPET_MAX_LENGTH);
+                return Some(clean);
             }
         }
         let text = String::from_utf8_lossy(body);
-        let clean: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-        return Some(clean.chars().take(SNIPPET_MAX_LENGTH).collect());
+        let clean = collapse_whitespace(&text, SNIPPET_MAX_LENGTH);
+        return Some(clean);
     }
     None
 }
@@ -715,75 +768,84 @@ pub struct PartInfo {
     pub is_inline: bool,
 }
 
-/// Recursively traverses the IMAP BODYSTRUCTURE to extract section IDs (e.g., "1", "2.1")
+/// Recursively traverses the IMAP BODYSTRUCTURE to extract section IDs (e.g., "1", "2.1").
+/// Implemented iteratively with an explicit stack to avoid O(depth) call-stack frames
+/// and intermediate allocations on deeply nested multipart messages.
 pub fn traverse_bodystructure(bs: &BodyStructure, section: &str, parts: &mut Vec<PartInfo>) {
-    match bs {
-        BodyStructure::Multipart { bodies, .. } => {
-            for (i, body) in bodies.iter().enumerate() {
-                let next_section = if section.is_empty() {
-                    format!("{}", i + 1)
+    // Stack holds (node reference, section string). Pushed in reverse order for
+    // Multipart children so they are processed in the original index order.
+    let mut stack: Vec<(&BodyStructure, String)> = vec![(bs, section.to_string())];
+
+    while let Some((node, sec)) = stack.pop() {
+        match node {
+            BodyStructure::Multipart { bodies, .. } => {
+                for (i, body) in bodies.iter().enumerate().rev() {
+                    let next_section = if sec.is_empty() {
+                        format!("{}", i + 1)
+                    } else {
+                        format!("{}.{}", sec, i + 1)
+                    };
+                    stack.push((body, next_section));
+                }
+            }
+            BodyStructure::Basic { common, other, .. }
+            | BodyStructure::Text { common, other, .. } => {
+                let mime_type = format!("{}/{}", common.ty.ty, common.ty.subtype);
+                let mut filename = None;
+                let mut is_inline = false;
+                let content_id = other.id.as_ref().map(|s| {
+                    s.to_string()
+                        .trim_matches(|c| c == '<' || c == '>')
+                        .to_string()
+                });
+                if let Some(disp) = &common.disposition {
+                    if disp.ty.eq_ignore_ascii_case("attachment") {
+                        is_inline = false;
+                    } else if disp.ty.eq_ignore_ascii_case("inline") {
+                        is_inline = true;
+                    }
+                    if let Some(params) = &disp.params {
+                        for (k, v) in params {
+                            if k.eq_ignore_ascii_case("filename") {
+                                filename = Some(v.to_string().trim_matches('"').to_string());
+                            }
+                        }
+                    }
+                }
+                if filename.is_none() {
+                    if let Some(params) = &common.ty.params {
+                        for (k, v) in params {
+                            if k.eq_ignore_ascii_case("name") {
+                                filename = Some(v.to_string().trim_matches('"').to_string());
+                            }
+                        }
+                    }
+                }
+                parts.push(PartInfo {
+                    section: sec,
+                    mime_type,
+                    filename,
+                    size: other.octets as usize,
+                    content_id,
+                    is_inline,
+                });
+            }
+            BodyStructure::Message { body, .. } => {
+                parts.push(PartInfo {
+                    section: sec.clone(),
+                    mime_type: "message/rfc822".to_string(),
+                    filename: Some("message.eml".to_string()),
+                    size: 0,
+                    content_id: None,
+                    is_inline: false,
+                });
+                let next_section = if sec.is_empty() {
+                    "1".to_string()
                 } else {
-                    format!("{}.{}", section, i + 1)
+                    format!("{}.1", sec)
                 };
-                traverse_bodystructure(body, &next_section, parts);
+                stack.push((body.as_ref(), next_section));
             }
-        }
-        BodyStructure::Basic { common, other, .. } | BodyStructure::Text { common, other, .. } => {
-            let mime_type = format!("{}/{}", common.ty.ty, common.ty.subtype);
-            let mut filename = None;
-            let mut is_inline = false;
-            
-            // In async-imap 0.9, Content-ID is located in the `other` struct
-            let content_id = other.id.as_ref().map(|s| s.to_string().trim_matches(|c| c == '<' || c == '>').to_string());
-            
-            if let Some(disp) = &common.disposition {
-                // The disposition type (e.g., "attachment", "inline") is stored in `ty`
-                if disp.ty.eq_ignore_ascii_case("attachment") {
-                    is_inline = false;
-                } else if disp.ty.eq_ignore_ascii_case("inline") {
-                    is_inline = true;
-                }
-                if let Some(params) = &disp.params {
-                    for (k, v) in params {
-                        if k.eq_ignore_ascii_case("filename") {
-                            filename = Some(v.to_string().trim_matches('"').to_string());
-                        }
-                    }
-                }
-            }
-            
-            // Fallback to Content-Type name parameter if filename wasn't in disposition
-            if filename.is_none() {
-                if let Some(params) = &common.ty.params {
-                    for (k, v) in params {
-                        if k.eq_ignore_ascii_case("name") {
-                            filename = Some(v.to_string().trim_matches('"').to_string());
-                        }
-                    }
-                }
-            }
-            
-            parts.push(PartInfo {
-                section: section.to_string(),
-                mime_type,
-                filename,
-                size: other.octets as usize, // FIX: `octets` is the correct field name for byte size in async-imap 0.9
-                content_id,
-                is_inline,
-            });
-        }
-        BodyStructure::Message { body, .. } => {
-            let mime_type = "message/rfc822".to_string();
-            parts.push(PartInfo {
-                section: section.to_string(),
-                mime_type,
-                filename: Some("message.eml".to_string()),
-                size: 0,
-                content_id: None,
-                is_inline: false,
-            });
-            let next_section = if section.is_empty() { "1".to_string() } else { format!("{}.1", section) };
-            traverse_bodystructure(body, &next_section, parts);
         }
     }
 }
@@ -798,7 +860,7 @@ pub async fn fetch_attachment_part(
     session.select(mailbox).await?;
     let query = format!("(BODY.PEEK[{}])", section_id);
     let mut stream = session.uid_fetch(uid.to_string(), query).await?;
-    
+
     if let Some(fetch_result) = stream.next().await {
         let fetch = fetch_result?;
         if let Some(body) = fetch.body() {

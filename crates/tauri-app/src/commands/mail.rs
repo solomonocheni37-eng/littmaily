@@ -337,6 +337,10 @@ pub async fn get_attachment_base64(state: State<'_, AppState>, blob_hash: String
 #[tauri::command]
 #[specta::specta]
 pub async fn check_for_new_emails(state: State<'_, AppState>, account_id: String, mailbox_name: String) -> Result<u32, AppError> {
+    // Virtual folders don't have direct IMAP sync
+    if mailbox_name.starts_with("__") {
+        return Ok(0);
+    }
     let pool = state.pool.get().ok_or_else(|| AppError::System("DB not ready".into()))?;
     let acc_repo = AccountRepository::new(pool);
     let msg_repo = MessageRepository::new(pool);
@@ -415,7 +419,10 @@ pub async fn rename_folder(state: State<'_, AppState>, account_id: String, old_n
 #[tauri::command]
 #[specta::specta]
 pub async fn fetch_viewport_snippets(state: State<'_, AppState>, account_id: String, mailbox_name: String, uids: Vec<u32>) -> Result<std::collections::HashMap<u32, String>, AppError> {
-    if uids.is_empty() { return Ok(std::collections::HashMap::new()); }
+    // Virtual folders don't have direct IMAP sync
+    if uids.is_empty() || mailbox_name.starts_with("__") {
+        return Ok(std::collections::HashMap::new());
+    }
     let pool = state.pool.get().ok_or_else(|| AppError::System("DB not ready".into()))?;
     let msg_repo = MessageRepository::new(pool);
     let acc_repo = AccountRepository::new(pool);

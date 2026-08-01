@@ -62,14 +62,12 @@
   ::-webkit-scrollbar-thumb:hover {
     background: #a1a1aa; /* Zinc 400 */
   }
-
   :root.dark ::-webkit-scrollbar-thumb {
     background: #3f3f46; /* Zinc 700 */
   }
   :root.dark ::-webkit-scrollbar-thumb:hover {
     background: #52525b; /* Zinc 600 */
   }
-
   @media (prefers-color-scheme: dark) {
     :root:not(.light) ::-webkit-scrollbar-thumb {
       background: #3f3f46;
@@ -85,11 +83,19 @@
     /* line-clamp-1 handles truncation natively without expensive mask repaints */
   }
 
-  /* CSS Containment: The secret to 120fps virtualized lists.
+  /* CSS Containment: the secret to smooth virtualized lists.
      Tells the browser that the internals of this list item will not affect
-     the layout of anything outside it. */
+     the layout of anything outside it, so repositioning one row never
+     invalidates its siblings. */
   .virtual-row {
     contain: layout style paint;
+  }
+
+  /* Scroll surfaces: isolate paint/layout so scrolling stays a pure
+     compositor (transform) operation instead of triggering repaints. */
+  .scroll-surface {
+    contain: content;
+    overscroll-behavior: contain;
   }
 
   .glass-panel {
@@ -98,7 +104,6 @@
     -webkit-backdrop-filter: blur(12px) saturate(180%);
     border-right: 1px solid rgba(0, 0, 0, 0.05);
   }
-
   @media (prefers-color-scheme: dark) {
     .glass-panel {
       background: rgba(24, 24, 27, 0.6);
@@ -119,14 +124,25 @@
   }
 }
 
-* {
-  transition-property: color, background-color, border-color,
-    text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter,
-    backdrop-filter;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
-}
+/*
+ * NOTE: The previous global transition rule was REMOVED:
+ *
+ *   * {
+ *     transition-property: color, background-color, ..., transform, ...;
+ *     transition-duration: 150ms;
+ *   }
+ *
+ * It animated EVERY transform/opacity/box-shadow change on EVERY element —
+ * including the virtualizer's per-frame `translateY` row repositioning —
+ * which caused severe scroll jank and ghosting in the email list, and made
+ * the reading pane re-rasterize on every resize.
+ *
+ * Components that need transitions already declare them explicitly via
+ * Tailwind utilities (transition-colors, transition-all, etc.), so nothing
+ * regresses. Theme switching is now instant, which is fine.
+ */
 
+/* Quill editor dark mode */
 .dark .ql-toolbar.ql-snow,
 .dark .ql-container.ql-snow {
   border-color: #3f3f46;
@@ -134,11 +150,9 @@
   border-left: none;
   border-right: none;
 }
-
 .dark .ql-container.ql-snow {
   border-bottom: none;
 }
-
 .dark .ql-editor {
   color: #fafafa;
   background-color: #18181b;
@@ -147,33 +161,26 @@
   font-size: 14px;
   line-height: 1.6;
 }
-
 .dark .ql-editor.ql-blank::before {
   color: #71717a;
   font-style: normal;
 }
-
 .dark .ql-snow .ql-stroke {
   stroke: #a1a1aa;
 }
-
 .dark .ql-snow .ql-fill {
   fill: #a1a1aa;
 }
-
 .dark .ql-snow .ql-picker {
   color: #a1a1aa;
 }
-
 .dark .ql-snow .ql-picker-options {
   background-color: #27272a;
   border-color: #3f3f46;
 }
-
 .dark .ql-snow .ql-picker.ql-expanded .ql-picker-label {
   border-color: #3f3f46;
 }
-
 .dark .ql-editor blockquote {
   border-left: 4px solid #3f3f46;
   color: #a1a1aa;

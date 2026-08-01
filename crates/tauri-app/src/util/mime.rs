@@ -6,7 +6,7 @@ use regex::Regex;
 /// Uses a 4-step pipeline:
 /// 1. Ammonia: Strips dangerous tags/attributes (XSS prevention).
 /// 2. lol_html: Safely traverses the DOM to rewrite remote image/background URLs to data-src.
-/// 3. Regex CSS URL: Rewrites `url()` patterns inside `<style>` blocks (DOM parsers can't do this).
+/// 3. Regex CSS: Strips entire `@import` rules and rewrites remaining `url()` patterns.
 /// 4. Regex CSS Danger: Strips `position: fixed` and `z-index` to prevent UI redressing/clickjacking.
 pub fn sanitize_html(html: &str) -> String {
     let fallback_pixel =
@@ -70,12 +70,55 @@ pub fn sanitize_html(html: &str) -> String {
         Err(_) => clean.clone(),
     };
 
-    // 3. CSS URL Rewriting (Regex)
-    let re_css_url = match Regex::new(r#"(?i)url\(\s*['"]?(https?://[^'")]+|cid:[^'")]+)['"]?\s*\)"#) {
+    // 3. CSS @import Stripping & URL Rewriting (Regex)
+    //
+    // STEP 3a: Strip the ENTIRE @import rule — keyword, URL/string, optional
+    // media queries, and the trailing semicolon.
+    //
+    // The old code replaced only `@import ` → `/* @import */ `, leaving a
+    // dangling `url('http://…')`. The URL rewriter below then turned it into
+    // `url('data:image/gif;base64,…')`. WebKit's CSS parser saw the bare `url()`
+    // after the comment closed and still attempted a stylesheet load on the
+    // data URI, producing:
+    //   "Did not parse stylesheet at 'data:image/gif;…' because non CSS MIME
+    //    types are not allowed in strict mode."
+    //
+    // By matching the full rule and replacing it with an inert comment, no
+    // `url()` survives for the rewriter to touch.
+    //
+    // `\s*` (not `\s+`) handles minified CSS like `@import'url(…)';`.
+    // `[^;}{]+` consumes the URL, quotes, and any media queries up to the
+    // semicolon or the next block boundary.
+    let re_import = match Regex::new(r#"(?i)@import\s*[^;}{]+;?"#) {
         Ok(re) => re,
         Err(_) => return rewritten,
     };
-    let html_after_url_rewrite = re_css_url.replace_all(&rewritten, format!("url('{}')", fallback_pixel).as_str());
+    let after_import_strip = re_import.replace_all(&rewritten, "/* import rule removed */");
+
+    // STEP 3b: Safety net — if any @import keyword survived (e.g. malformed
+    // CSS with no URL), neutralise it so the URL rewriter below can never
+    // produce a `url()` that WebKit would try to parse as a stylesheet.
+    // The replacement deliberately avoids the literal "@import" so this
+    // pass cannot match inside the comment from step 3a.
+    let re_import_keyword = match Regex::new(r#"(?i)@import\b"#) {
+        Ok(re) => re,
+        Err(_) => return after_import_strip.into_owned(),
+    };
+    let neutralized_imports = re_import_keyword.replace_all(&after_import_strip, "/* removed */");
+
+    // STEP 3c: Rewrite any remaining legitimate url() references in CSS
+    // declarations (background-image, list-style-image, etc.).
+    // At this point NO @import url() survives, so every url() we touch here
+    // is a property value — the browser loads it as an image, never as a
+    // stylesheet.
+    let re_css_url = match Regex::new(r#"(?i)url\(\s*['"]?(https?://[^'")]+|cid:[^'")]+)['"]?\s*\)"#) {
+        Ok(re) => re,
+        Err(_) => return neutralized_imports.into_owned(),
+    };
+    let html_after_url_rewrite = re_css_url.replace_all(
+        &neutralized_imports,
+        format!("url('{}')", fallback_pixel).as_str(),
+    );
 
     // 4. CSS Property Sanitization (Prevent UI Redressing / Clickjacking inside iframe)
     let re_css_danger = match Regex::new(r#"(?i)(position\s*:\s*fixed|z-index\s*:\s*[^;}"']+)"#) {
@@ -83,6 +126,7 @@ pub fn sanitize_html(html: &str) -> String {
         Err(_) => return html_after_url_rewrite.into_owned(),
     };
     let final_html = re_css_danger.replace_all(&html_after_url_rewrite, "").into_owned();
+
     final_html
 }
 
@@ -96,6 +140,7 @@ pub fn replace_cid_with_data_uri(
     attachments: &[email_core::mime_parser::ExtractedAttachment],
 ) -> String {
     let mut result = html.to_string();
+
     for att in attachments {
         if let Some(cid) = &att.content_id {
             let clean_cid = cid.trim_matches(|c: char| {
@@ -104,15 +149,15 @@ pub fn replace_cid_with_data_uri(
             if clean_cid.is_empty() {
                 continue;
             }
+
             let mime_type = if att.content.starts_with(&[0xFF, 0xD8, 0xFF]) {
                 "image/jpeg"
             } else if att.content.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
                 "image/png"
             } else if att.content.starts_with(&[0x47, 0x49, 0x46, 0x38]) {
                 "image/gif"
-            } else if att.content.starts_with(&[0x52, 0x49, 0x46, 0x46])
-                && att.content.len() > 11
-                && &att.content[8..12] == b"WEBP"
+            } else if att.content.get(8..12) == Some(b"WEBP".as_slice())
+                && att.content.starts_with(&[0x52, 0x49, 0x46, 0x46])
             {
                 "image/webp"
             } else if att.content.starts_with(b"<?xml")
@@ -125,12 +170,14 @@ pub fn replace_cid_with_data_uri(
             } else {
                 "image/png"
             };
+
             let b64 = STANDARD.encode(&att.content);
             let data_uri = format!("data:{};base64,{}", mime_type, b64);
 
             let escaped_cid = regex::escape(clean_cid);
             let encoded_cid = regex::escape(&clean_cid.replace(" ", "%20"));
             let pattern = format!(r#"(?i)cid:(?:<)?(?:{}|{})(?:>)?"#, escaped_cid, encoded_cid);
+
             if let Ok(re) = Regex::new(&pattern) {
                 result = re.replace_all(&result, data_uri.as_str()).into_owned();
             }
@@ -159,5 +206,6 @@ pub fn replace_cid_with_data_uri(
     if let Ok(re_nq) = Regex::new(r#"(?i)((?:src|background)\s*=\s*)cid:[^\s>]+"#) {
         result = re_nq.replace_all(&result, format!(r#"$1"{}""#, fallback_pixel).as_str()).into_owned();
     }
+
     result
 }
