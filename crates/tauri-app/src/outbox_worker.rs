@@ -1,3 +1,4 @@
+// FILE: ./crates/tauri-app/src/outbox_worker.rs
 use async_trait::async_trait;
 use sqlx::SqlitePool;
 use storage::models::{Account, OutboxMessage};
@@ -34,7 +35,6 @@ impl<S: MessageSender> OutboxWorker<S> {
         let repo = OutboxRepository::new(&self.pool);
         let account_repo = AccountRepository::new(&self.pool);
         let pending = repo.get_pending(10).await.unwrap_or_default();
-
         for msg in pending {
             if let Ok(Some(account)) = account_repo.get_by_id(&msg.account_id).await {
                 match self.sender.send(&account, &msg).await {
@@ -75,6 +75,7 @@ mod tests {
                 Ok(())
             }
         }
+
         async fn on_success(&self, _account: &Account, _msg: &OutboxMessage) -> Result<(), String> {
             Ok(())
         }
@@ -112,7 +113,6 @@ mod tests {
             )
             .await
             .unwrap();
-
         let send_count = Arc::new(AtomicUsize::new(0));
         let sender = MockSender {
             send_count: send_count.clone(),
@@ -120,7 +120,6 @@ mod tests {
         };
         let worker = OutboxWorker::new(pool.clone(), sender);
         worker.process_pending().await;
-
         assert_eq!(send_count.load(Ordering::SeqCst), 1);
         let updated = outbox_repo.get_by_id(msg.id).await.unwrap();
         assert_eq!(updated.status, "sent");
@@ -146,7 +145,9 @@ mod tests {
             )
             .await
             .unwrap();
-        let _msg = outbox_repo
+
+        // Capture the message so we can query its exact DB state later.
+        let msg = outbox_repo
             .enqueue(
                 &acc.id,
                 b"Raw MIME",
@@ -165,18 +166,34 @@ mod tests {
         };
         let worker = OutboxWorker::new(pool.clone(), sender);
 
-        // Simulate 5 failed loop iterations
+        // Simulate 5 failed loop iterations. After this the message has
+        // retry_count = 5 and status = 'failed'.
         for _ in 0..5 {
             worker.process_pending().await;
         }
-        let pending = outbox_repo.get_pending(10).await.unwrap();
-        assert_eq!(pending.len(), 1);
-        assert_eq!(pending[0].retry_count, 5);
 
-        // 6th run should NOT pick it up because DB query filters retry_count < 5.
-        // This prevents infinite retry loops for permanently failed messages (e.g., invalid recipient).
+        // Assert the raw DB state via get_by_id. We must NOT use get_pending
+        // here: its query intentionally excludes messages with retry_count >= 5,
+        // so a message that has exactly hit the limit is invisible to it.
+        let updated_msg = outbox_repo.get_by_id(msg.id).await.unwrap();
+        assert_eq!(
+            updated_msg.retry_count, 5,
+            "Retry count should exactly hit the limit"
+        );
+        assert_eq!(
+            updated_msg.status, "failed",
+            "Status should be marked as failed"
+        );
+
+        // 6th run should NOT pick it up because the DB query filters
+        // retry_count < 5. This prevents infinite retry loops for permanently
+        // failed messages (e.g., invalid recipient).
         worker.process_pending().await;
         let pending_after = outbox_repo.get_pending(10).await.unwrap();
-        assert_eq!(pending_after.len(), 0);
+        assert_eq!(
+            pending_after.len(),
+            0,
+            "Worker should ignore messages that exceeded the retry limit"
+        );
     }
 }
