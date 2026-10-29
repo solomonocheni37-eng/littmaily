@@ -1,3 +1,4 @@
+// FILE: ./frontend/src/features/email/views/ReadingPane.tsx
 import { Show, For, createEffect, createSignal } from "solid-js";
 import { useAppContext } from "@/core/store/AppStore";
 import { confirm } from "@tauri-apps/plugin-dialog";
@@ -27,6 +28,9 @@ import { appEvents } from "@/core/events/eventBus";
 
 const ReadingPane = () => {
   const { openCompose, selectEmail } = useAppContext();
+
+  let scrollContainerRef: HTMLDivElement | undefined;
+
   const {
     state,
     emailBody,
@@ -35,8 +39,7 @@ const ReadingPane = () => {
     loadingImages,
     failedImageCount,
     renderedHtml,
-    iframeRef,
-    srcdoc,
+    shadowHostRef,
     triggerLoadRemoteImages,
     retryFailedImages,
     zoom,
@@ -44,9 +47,7 @@ const ReadingPane = () => {
     resetZoom,
     panMode,
     setPanMode,
-  } = useEmailViewer();
-
-  let scrollContainerRef: HTMLDivElement | undefined;
+  } = useEmailViewer(() => scrollContainerRef);
 
   createEffect(() => {
     state.selectedEmail?.uid;
@@ -67,9 +68,10 @@ const ReadingPane = () => {
             filename.length - 15
           )}`
         : filename;
+
     if (isExecutable(filename)) {
       const isConfirmed = await confirm(
-        `The file "${displayName}" is an executable or script.\nRunning untrusted files from emails is dangerous.\nAre you absolutely sure?`,
+        `The file "${displayName}" is an executable or script.\n\nRunning untrusted files from emails is dangerous.\n\nAre you absolutely sure?`,
         {
           title: "Security Warning",
           okLabel: "Download Anyway",
@@ -78,6 +80,7 @@ const ReadingPane = () => {
       );
       if (!isConfirmed) return;
     }
+
     try {
       const saved = await EmailApi.saveAttachmentDialog(blobHash, filename);
       if (saved) toast("Attachment saved successfully!");
@@ -136,6 +139,7 @@ const ReadingPane = () => {
           </div>
         }
       >
+        {/* ── header bar ─────────────────────────────────────── */}
         <div class="p-6 border-b border-surface-200 dark:border-surface-800 flex-shrink-0 bg-white dark:bg-surface-900">
           <div class="flex justify-between items-start mb-4">
             <h1 class="text-2xl font-bold text-surface-900 dark:text-surface-50">
@@ -196,6 +200,8 @@ const ReadingPane = () => {
               >
                 <Trash2 size={18} />
               </button>
+
+              {/* zoom controls */}
               <div class="flex items-center gap-1 border-l border-surface-200 dark:border-surface-800 pl-2 ml-2">
                 <button
                   onClick={() => setZoom((z) => Math.max(50, z - 10))}
@@ -222,6 +228,8 @@ const ReadingPane = () => {
                   <Maximize2 size={14} />
                 </button>
               </div>
+
+              {/* pan / interact toggle */}
               <div class="flex items-center border-l border-surface-200 dark:border-surface-800 pl-2 ml-2">
                 <button
                   onClick={() => setPanMode((p) => !p)}
@@ -236,7 +244,11 @@ const ReadingPane = () => {
                       : "Hand Tool (Drag to Pan)"
                   }
                 >
-                  {panMode() ? <Hand size={16} /> : <MousePointer2 size={16} />}
+                  {panMode() ? (
+                    <Hand size={16} />
+                  ) : (
+                    <MousePointer2 size={16} />
+                  )}
                 </button>
               </div>
             </div>
@@ -249,15 +261,17 @@ const ReadingPane = () => {
             {state.selectedEmail!.date}
           </div>
         </div>
-        {/* Scroll surface: compositor-friendly (no animated children, isolated paint) */}
+
+        {/* ── scrollable body ──────────────────────────────────
+            Compositing profile identical to the smooth email list:
+            will-change: scroll-position + contain: content, no transforms. */}
         <div
           ref={scrollContainerRef}
           class="flex-1 overflow-y-auto overflow-x-hidden"
           style={{
             "overscroll-behavior": "contain",
             "will-change": "scroll-position",
-            "transform": "translateZ(0)",
-            "contain": "content",
+            contain: "content",
           }}
         >
           <Show
@@ -274,7 +288,9 @@ const ReadingPane = () => {
               >
                 <div class="flex flex-col items-center justify-center h-full gap-3 text-red-500 p-8 text-center">
                   <ShieldAlert size={40} class="opacity-80" />
-                  <h3 class="text-lg font-semibold">Failed to load message</h3>
+                  <h3 class="text-lg font-semibold">
+                    Failed to load message
+                  </h3>
                   <p class="text-sm text-surface-500 dark:text-surface-400 max-w-sm break-words">
                     {(emailBody.error as any)?.message ||
                       String(
@@ -293,6 +309,7 @@ const ReadingPane = () => {
             }
           >
             <div class="max-w-4xl mx-auto p-6">
+              {/* privacy banner */}
               <Show
                 when={!imagesLoaded() && renderedHtml()?.includes("data-src")}
               >
@@ -313,6 +330,8 @@ const ReadingPane = () => {
                   </button>
                 </div>
               </Show>
+
+              {/* failed-image banner */}
               <Show when={failedImageCount() > 0}>
                 <div class="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center justify-between shadow-sm">
                   <span class="text-sm text-red-800 dark:text-red-200 flex items-center gap-2">
@@ -330,6 +349,11 @@ const ReadingPane = () => {
                   </button>
                 </div>
               </Show>
+
+              {/* ── email body (Shadow DOM host) ───────────────
+                  Theme colors flow in as inherited CSS custom properties
+                  (light/dark values via Tailwind variants). Accessible name
+                  replaces the old iframe title attribute. */}
               <Show
                 when={renderedHtml()}
                 fallback={
@@ -338,18 +362,15 @@ const ReadingPane = () => {
                   </pre>
                 }
               >
-                {/* No height transition / will-change:height — those forced a full
-                    reflow + re-rasterize on every resize. Height updates are instant
-                    and applied off the critical scroll path in the hook. */}
-                <iframe
-                  ref={iframeRef}
-                  sandbox="allow-scripts"
-                  class="w-full min-h-[400px] bg-transparent rounded-lg shadow-sm border border-surface-200 dark:border-surface-800"
-                  style={{ "transform": "translateZ(0)" }}
-                  srcdoc={srcdoc()}
-                  title="Email Content"
+                <div
+                  ref={shadowHostRef}
+                  role="region"
+                  aria-label="Email content"
+                  class="w-full min-h-[400px] bg-transparent rounded-lg shadow-sm border border-surface-200 dark:border-surface-800 [--email-canvas:#e5e7eb] dark:[--email-canvas:#27272a] [--email-paper-edge:rgba(0,0,0,0.10)] dark:[--email-paper-edge:rgba(255,255,255,0.10)]"
                 />
               </Show>
+
+              {/* ── attachments ──────────────────────────────── */}
               <Show when={emailBody()!.attachments.length > 0}>
                 <div class="mt-8 pt-6 border-t border-surface-200 dark:border-surface-800">
                   <h3 class="text-sm font-semibold mb-3 flex items-center gap-2 text-surface-700 dark:text-surface-300">
@@ -359,11 +380,19 @@ const ReadingPane = () => {
                   <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <For each={emailBody()!.attachments}>
                       {(att) => {
-                        const [isDownloading, setIsDownloading] = createSignal(false);
-                        const [localHash, setLocalHash] = createSignal(att.blob_hash);
+                        const [isDownloading, setIsDownloading] =
+                          createSignal(false);
+                        const [localHash, setLocalHash] = createSignal(
+                          att.blob_hash
+                        );
+
                         const handleLazyDownload = async () => {
                           if (localHash()) {
-                            await downloadAttachment(localHash()!, att.filename || "attachment", att.mime_type);
+                            await downloadAttachment(
+                              localHash()!,
+                              att.filename || "attachment",
+                              att.mime_type
+                            );
                             return;
                           }
                           setIsDownloading(true);
@@ -375,27 +404,43 @@ const ReadingPane = () => {
                               att.section_id
                             );
                             setLocalHash(hash);
-                            await downloadAttachment(hash, att.filename || "attachment", att.mime_type);
+                            await downloadAttachment(
+                              hash,
+                              att.filename || "attachment",
+                              att.mime_type
+                            );
                           } catch (e) {
                             toast("Failed to download attachment");
                           } finally {
                             setIsDownloading(false);
                           }
                         };
+
                         return (
                           <button
                             onClick={handleLazyDownload}
                             class="flex items-center gap-3 p-3 rounded-lg border border-surface-200 dark:border-surface-700 hover:bg-surface-100 dark:hover:bg-surface-800 text-left transition-colors"
                           >
                             <div class="w-10 h-10 rounded bg-brand-500/10 flex items-center justify-center text-brand-500">
-                              {isDownloading() ? <Loader2 size={20} class="animate-spin" /> : <Download size={20} />}
+                              {isDownloading() ? (
+                                <Loader2
+                                  size={20}
+                                  class="animate-spin"
+                                />
+                              ) : (
+                                <Download size={20} />
+                              )}
                             </div>
                             <div class="min-w-0 flex-1">
                               <div class="text-sm font-medium truncate text-surface-800 dark:text-surface-200">
                                 {att.filename || "Unknown"}
                               </div>
                               <div class="text-xs text-surface-500">
-                                {localHash() ? "Click to save" : `Click to download (${((att.size ?? 0) / 1024).toFixed(1)} KB)`}
+                                {localHash()
+                                  ? "Click to save"
+                                  : `Click to download (${(
+                                      (att.size ?? 0) / 1024
+                                    ).toFixed(1)} KB)`}
                               </div>
                             </div>
                           </button>

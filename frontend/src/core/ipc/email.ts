@@ -110,7 +110,15 @@ export const EmailApi = {
     }
     return res;
   },
+  // Returns a cache path (success) or the fallback data URI (failure).
   proxyRemoteImage: (url: string) => unwrap(commands.proxyRemoteImage(url)),
+  // Batched: one IPC round-trip for every remote image in a viewport batch.
+  proxyRemoteImages: (urls: string[]) =>
+    unwrap(commands.proxyRemoteImages(urls)),
+  // Lever 1: fire-and-forget background prewarm of the whole email's image
+  // cache. Returns immediately; Rust fetches in DOM order behind the scenes.
+  prewarmImageCache: (urls: string[]) =>
+    unwrap(commands.prewarmImageCache(urls)),
   createFolder: async (accountId: string, name: string) => {
     const res = await unwrap(commands.createFolder(accountId, name));
     appEvents.emit("mailboxes:refresh");
@@ -121,8 +129,14 @@ export const EmailApi = {
     appEvents.emit("mailboxes:refresh");
     return res;
   },
-  renameFolder: async (accountId: string, oldName: string, newName: string) => {
-    const res = await unwrap(commands.renameFolder(accountId, oldName, newName));
+  renameFolder: async (
+    accountId: string,
+    oldName: string,
+    newName: string
+  ) => {
+    const res = await unwrap(
+      commands.renameFolder(accountId, oldName, newName)
+    );
     appEvents.emit("mailboxes:refresh");
     return res;
   },

@@ -1,10 +1,10 @@
 [package]
 name = "tauri-app"
-version = "0.1.11"
+version = "0.1.12"
 edition = "2024"
 
 [dependencies]
-tauri = { version = "2", features = [ "devtools", "tray-icon"] }
+tauri = { version = "2", features = ["protocol-asset", "devtools", "tray-icon"] }
 tauri-plugin-fs = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
@@ -44,6 +44,12 @@ zeroize = "1.8"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 mail-parser = "0.9.0"
+# NEW: URL-keyed disk cache for the image proxy (content hashing).
+sha2 = "0.10"
+# NEW: decode + downscale oversized proxied images before caching them.
+# Only jpeg/png codecs are enabled: those are the formats we re-encode.
+# gif/webp/svg pass through untouched (animation/vector safety).
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 
 [build-dependencies]
 tauri-build = { version = "2.6.2", features = [] }

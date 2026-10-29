@@ -1,5 +1,6 @@
 // FILE: ./crates/tauri-app/src/main.rs
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod commands;
 mod error;
 mod outbox_worker;
@@ -32,7 +33,6 @@ fn main() {
         // Instead, we force X11 via XWayland. This bypasses native Wayland GPU crashes
         // while preserving the hardware compositor required for buttery smooth scrolling.
         std::env::set_var("GDK_BACKEND", "x11");
-
         // Disable DMA-BUF to prevent specific Nvidia/Mesa segfaults without killing OpenGL
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
@@ -46,10 +46,8 @@ fn main() {
         .join("littmaily")
         .join("logs");
     std::fs::create_dir_all(&log_dir).expect("Failed to create log directory");
-
     let file_appender = rolling::daily(&log_dir, "littmaily.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-
     tracing_subscriber::registry()
         .with(EnvFilter::new(
             "info,sqlx=warn,reqwest=warn,async_imap=warn,html5ever=error",
@@ -91,12 +89,12 @@ fn main() {
     builder
         .setup(|app| {
             let app_handle = app.handle().clone();
+
             //Initialize the Updater Plugin (Desktop only)
             #[cfg(desktop)]
             let _ = app_handle.plugin(tauri_plugin_updater::Builder::new().build());
 
             let app_handle_for_deep_link = app_handle.clone();
-
             // Intercept OS-level deep link redirects (e.g., littmaily://oauth/callback)
             // and emit them as Tauri events so the frontend OAuth flow can complete.
             app.deep_link().on_open_url(move |event| {
@@ -127,8 +125,9 @@ fn main() {
                 Err(e) => {
                     let error_msg = format!(
                         "Failed to access system keychain.\n\
-                        On Linux, ensure a Secret Service provider (like gnome-keyring or keepassxc) is running.\n\
-                        Error: {}", e
+                         On Linux, ensure a Secret Service provider (like gnome-keyring or keepassxc) is running.\n\
+                         Error: {}",
+                        e
                     );
                     app_handle
                         .dialog()
@@ -156,7 +155,6 @@ fn main() {
                     .join("littmaily")
                     .join("app.db");
                 let db_key_hex = hex::encode(master_key).to_uppercase();
-
                 let pool = match init_file_pool(&db_path, &db_key_hex).await {
                     Ok(p) => p,
                     Err(e) => {
@@ -164,9 +162,10 @@ fn main() {
                         // rather than permanently bricking the app.
                         let error_msg = format!(
                             "Failed to initialize the local database.\n\
-                            This usually happens if the disk is full or the database file is corrupted.\n\
-                            Error: {}\n\
-                            Click 'Reset' to delete the corrupted database and start fresh (this will erase local cached emails).", e
+                             This usually happens if the disk is full or the database file is corrupted.\n\
+                             Error: {}\n\
+                             Click 'Reset' to delete the corrupted database and start fresh (this will erase local cached emails).",
+                            e
                         );
                         let (tx, rx) = tokio::sync::oneshot::channel();
                         let db_path_clone = db_path.clone();
@@ -199,7 +198,6 @@ fn main() {
                         }
                     }
                 };
-
                 tracing::info!("[MAIN] Injecting pool into AppState OnceLock...");
                 let _ = pool_clone.set(pool.clone());
                 tracing::info!("[MAIN] Pool injection success: {}", pool_clone.get().is_some());
@@ -214,8 +212,9 @@ fn main() {
                 if let Err(e) = blob_store.init().await {
                     let error_msg = format!(
                         "Failed to initialize the local attachment store.\n\
-                        This usually happens if the disk is full or permissions are denied.\n\
-                        Error: {}", e
+                         This usually happens if the disk is full or permissions are denied.\n\
+                         Error: {}",
+                        e
                     );
                     app_handle
                         .dialog()
@@ -248,7 +247,6 @@ fn main() {
             let show = MenuItem::with_id(app, "show", "Show Littmaily", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
-
             let mut tray_builder = TrayIconBuilder::with_id("main-tray")
                 .tooltip("Littmaily")
                 .menu(&menu)
@@ -278,11 +276,9 @@ fn main() {
                     }
                     _ => {}
                 });
-
             if let Some(icon) = app.default_window_icon() {
                 tray_builder = tray_builder.icon(icon.clone());
             }
-
             let _tray = tray_builder.build(app)?;
 
             Ok(())
@@ -313,6 +309,8 @@ fn main() {
             commands::get_attachment_base64,
             commands::check_for_new_emails,
             commands::proxy_remote_image,
+            commands::proxy_remote_images,
+            commands::prewarm_image_cache,
             commands::create_folder,
             commands::delete_folder,
             commands::rename_folder,
@@ -364,6 +362,8 @@ mod specta_export {
             commands::get_attachment_base64,
             commands::check_for_new_emails,
             commands::proxy_remote_image,
+            commands::proxy_remote_images,
+            commands::prewarm_image_cache,
             commands::create_folder,
             commands::delete_folder,
             commands::rename_folder,
@@ -379,10 +379,10 @@ mod specta_export {
         builder
             .export(
                 Typescript::default()
-                    .header("// ð ¯ Auto-generated by tauri-specta. DO NOT EDIT MANUALLY.\n"),
+                    .header("// Auto-generated by tauri-specta. DO NOT EDIT MANUALLY.\n"),
                 export_path,
             )
             .expect("Failed to export typescript types");
-        println!("â  Successfully exported TS types to {}", export_path);
+        println!("Successfully exported TS types to {}", export_path);
     }
 }

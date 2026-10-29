@@ -1,4 +1,5 @@
 name: Release
+
 on:
   push:
     tags:
@@ -26,6 +27,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # GUARD: the git tag MUST match tauri.conf.json and Cargo.toml versions.
+      # tauri-action names the release from tauri.conf.json, not from the tag,
+      # so a mismatch silently publishes assets under the wrong tag.
+      - name: verify tag matches app version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          CONF=$(node -p "require('./crates/tauri-app/tauri.conf.json').version")
+          CARGO=$(grep -m1 '^version = ' crates/tauri-app/Cargo.toml | cut -d'"' -f2)
+          echo "tag=$TAG conf=$CONF cargo=$CARGO"
+          if [ "$TAG" != "$CONF" ] || [ "$TAG" != "$CARGO" ]; then
+            echo "::error::Version mismatch: tag v$TAG vs tauri.conf.json $CONF vs Cargo.toml $CARGO"
+            exit 1
+          fi
+
       - name: setup node
         uses: actions/setup-node@v4
         with:
@@ -36,14 +53,23 @@ jobs:
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
+      # Repeat releases skip recompiling the whole workspace (big win with
+      # vendored SQLCipher/OpenSSL in the dependency tree).
+      - name: rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./crates/tauri-app -> target"
+
       - name: install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
+      # npm ci (not npm install): installs exactly what package-lock.json pins,
+      # so shipped bundles are reproducible from the commit.
       - name: install frontend dependencies
-        run: npm install --prefix frontend
+        run: npm ci --prefix frontend
 
       - name: build frontend manually
         # We build the frontend here because tauri.conf.json's beforeBuildCommand
@@ -56,7 +82,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # REQUIRED: Signs the update bundles so the app trusts the download
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
