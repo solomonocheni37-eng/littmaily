@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.1.12
+
+### ✨ New Features
+- **Shadow DOM Reading Pane:** Email HTML now renders inside a Shadow DOM attached to a plain `<div>`, replacing the sandboxed iframe. Full style isolation with no cross-context compositing cost and no postMessage latency.
+- **Private Image Pipeline:** Remote images are fetched by a hardened Rust proxy (SSRF-validated on every redirect hop), cached on disk keyed by URL, and streamed to the UI through the asset protocol — no base64 payloads over IPC. Reopening an email loads images instantly, even offline.
+- **Viewport Lazy Loading + Background Prewarm:** Visible images load immediately when you opt in; the rest of the email prewarms in the background and appears as you scroll.
+- **CI on GitHub Actions:** Every push/PR now runs the frontend typecheck/build, protocol-crate tests, app tests, and a bindings drift gate that keeps the TypeScript IPC types in sync with Rust.
+
+### ⚡ Performance
+- **Realtime scrolling in the reading pane:** forced GPU layers removed from the email body; layer promotion now happens only transiently during the zoom animation. Scrolling is compositor-driven on every platform, including Linux/WebKitGTK.
+- **Math-only zoom:** dimension updates during the zoom animation no longer force layout reflows; base measurements are cached and refreshed only when content actually changes.
+- **Background image optimization:** oversized JPEG/PNG (>2048px) are downscaled on a background thread and swapped in atomically — first paint is never blocked on pixel crunching.
+- **Bounded, deduplicated fetching:** one IPC round-trip per viewport batch, per-URL session dedup, concurrency capped at 16.
+
+### 🛡️ Security & Privacy
+- **Three-layer HTML sanitization:** Rust allowlist sanitization (ammonia + lol_html), a frontend DOM pass stripping scripts / `on*` handlers / `javascript:` URLs, and a runtime MutationObserver watchdog inside the Shadow DOM.
+- **No-CSP tradeoff documented:** CSP was intentionally removed after WebKitGTK stylesheet-refusal issues; the three layers above replace it.
+- Nothing fetches remote content until you explicitly click "Load Images".
+
+### 🐛 Bug Fixes & UX
+- `mailto:` links now open a prefilled Compose window instead of silently doing nothing.
+- The reading pane is exposed to assistive technology as a labelled region.
+- Scroll position stays stable when late-loading images grow content above the viewport.
+- Failed images show a clickable dashed retry placeholder; "Retry all" recovers whole batches.
+- Theme switches update the email canvas live via inherited CSS custom properties.
+
 ## v0.1.11 (Latest)
 
 ### ✨ New Features
