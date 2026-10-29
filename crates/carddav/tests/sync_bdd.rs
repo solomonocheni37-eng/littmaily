@@ -1,3 +1,5 @@
+use wiremock::{MockServer, Mock, ResponseTemplate, matchers::{method, path}};
+
 // Verifies that the client correctly reconstructs UIDs that were folded across multiple lines
 // by the server, which is common for long URN-based UUIDs in vCard 3.0/4.0.
 #[tokio::test]
